@@ -9,6 +9,11 @@ const _style = SheetNavigatorStyle(surfaceBuilder: _surface);
 
 final class const _OnlyRoute() extends SheetRoute;
 
+final class const _KeyedRoute(final String id) extends SheetRoute {
+  @override
+  Object get pageKey => id;
+}
+
 Widget _surface(BuildContext context, Widget card) => card;
 
 Widget _singleSheet({
@@ -239,6 +244,71 @@ void main() {
         keyboardHeight: 300,
       );
       expect(tester.widget<Sheet>(find.byType(Sheet)).padding, const EdgeInsets.only(bottom: 300));
+    });
+
+    testWidgets('keeps a covered sheet from rebuilding when the keyboard height changes', (
+      tester,
+    ) async {
+      final controllers = [SheetController(), SheetController()];
+      addTearDown(() {
+        for (final controller in controllers) {
+          controller.dispose();
+        }
+      });
+      var coveredBuilds = 0;
+      var topBuilds = 0;
+      SheetStackEntry entry(String id, SheetController controller, VoidCallback onBuild) =>
+          SheetStackEntry(
+            route: _KeyedRoute(id),
+            page: SheetPage(
+              pageKey: id,
+              initialSize: 0.5,
+              snapSizes: const [0.5],
+              builder: (context, scrollController) {
+                onBuild();
+                return const SizedBox.expand();
+              },
+            ),
+            controller: controller,
+          );
+      final keyboardHeight = ValueNotifier<double>(0);
+      addTearDown(keyboardHeight.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ValueListenableBuilder<double>(
+            valueListenable: keyboardHeight,
+            builder: (context, height, child) => MediaQuery(
+              data: MediaQueryData(viewInsets: EdgeInsets.only(bottom: height)),
+              child: child!,
+            ),
+            child: SheetStack(
+              entries: [
+                entry('covered', controllers[0], () => coveredBuilds++),
+                entry('top', controllers[1], () => topBuilds++),
+              ],
+              style: const SheetNavigatorStyle(
+                surfaceBuilder: _surface,
+                isKeyboardPaddingEnabled: true,
+              ),
+              onExitCompleted: (_) {},
+              onVisualTopExtentChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final coveredBuildsBefore = coveredBuilds;
+      final topBuildsBefore = topBuilds;
+
+      keyboardHeight.value = 300;
+      await tester.pumpAndSettle();
+
+      expect(coveredBuilds, coveredBuildsBefore);
+      expect(topBuilds, greaterThan(topBuildsBefore));
+      expect(
+        tester.widgetList<Sheet>(find.byType(Sheet, skipOffstage: false)).last.padding,
+        const EdgeInsets.only(bottom: 300),
+      );
     });
 
     testWidgets('hands the style scroll configuration to the sheet', (tester) async {

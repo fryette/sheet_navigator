@@ -572,7 +572,10 @@ class const _SheetStackEntryView({
             animation: live.motion,
             builder: (_, child) =>
                 Transform.translate(offset: Offset(0, live.dyFor(viewportHeight)), child: child),
-            child: _sheet(context),
+            child: _ViewInsetsGate(
+              isActive: live.isPainted,
+              child: Builder(builder: _sheet),
+            ),
           ),
         ),
       ),
@@ -627,6 +630,27 @@ class const _SheetStackEntryView({
           },
         ),
       ),
+    );
+  }
+}
+
+class const _ViewInsetsGate({required final bool isActive, required final Widget child})
+    extends StatefulWidget {
+  @override
+  State<_ViewInsetsGate> createState() => _ViewInsetsGateState();
+}
+
+class _ViewInsetsGateState extends State<_ViewInsetsGate> {
+  EdgeInsets? _viewInsets;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = MediaQuery.of(context);
+    if (widget.isActive) _viewInsets = data.viewInsets;
+    _viewInsets ??= data.viewInsets;
+    return MediaQuery(
+      data: data.copyWith(viewInsets: _viewInsets),
+      child: widget.child,
     );
   }
 }

@@ -374,11 +374,20 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 
   void _handleSheetExitCompleted(Object pageKey) {
-    final route = _routesByPageKey.remove(pageKey);
+    final isLive = _stack.any((route) => route.pageKey == pageKey);
+    final route = isLive ? _routesByPageKey[pageKey] : _routesByPageKey.remove(pageKey);
     if (route == null) return;
 
     final feature = _featureFor(route);
     _pendingFeatureExits[feature]?.pendingPageKeys.remove(pageKey);
+    if (isLive) {
+      if (_pendingFeatureExits[feature] case final pending?) {
+        pending.removedRoutes.removeWhere((removed) => removed.pageKey == pageKey);
+        _tryCompleteExit(feature, pending);
+      }
+      return;
+    }
+
     _controllers.remove(pageKey)?.dispose();
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
@@ -466,7 +475,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   void _publishVisualTopExtent(double? value) {
     if (_visualTopExtent.value == value) return;
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _publishVisualTopExtent(value));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _publishVisualTopExtent(value);
+      });
     } else {
       _visualTopExtent.value = value;
       widget.onVisualTopExtentChanged?.call(value);

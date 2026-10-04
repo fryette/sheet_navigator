@@ -302,6 +302,35 @@ void main() {
       expect(log.lastOrNull, 'top _DetailsRoute');
     });
 
+    testWidgets('re-pushing a key while its pop is still exiting keeps the live controller', (
+      tester,
+    ) async {
+      final controllers = <SheetController>[];
+      final hostKey = await pumpHost(
+        tester,
+        features: [
+          rootFeature(),
+          _TestFeature(
+            matcher: (route) => route is _ListRoute,
+            log: log,
+            onController: controllers.add,
+          ),
+        ],
+      );
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(_pageOf(const _ListRoute()), findsOneWidget);
+      expect(controllers.toSet(), hasLength(1));
+      expect(controllers.first.hasClient, isTrue);
+    });
+
     testWidgets('a page asks for a pop through the navigator scope', (tester) async {
       final hostKey = await pumpHost(tester);
       hostKey.currentState?.push(const _ListRoute());
