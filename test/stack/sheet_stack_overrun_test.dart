@@ -49,31 +49,36 @@ Offset _insideSheet(WidgetTester tester) {
 void main() {
   group('SheetStack overrun', () {
     for (final dragDistance in [500.0, 503.0]) {
-      testWidgets('a fling of $dragDistance never lifts the sheet past its top stop', (
-        tester,
-      ) async {
-        final controller = SheetController();
-        addTearDown(controller.dispose);
-        await tester.pumpWidget(_singleSheet(controller: controller));
-        await tester.pumpAndSettle();
+      testWidgets(
+        'a fling of $dragDistance never lifts the sheet past its top stop by more than the bounce allowance',
+        (tester) async {
+          final controller = SheetController();
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(_singleSheet(controller: controller));
+          await tester.pumpAndSettle();
 
-        var highestOffset = 0.0;
-        void recordOffset() {
-          final offset = controller.metrics?.offset;
-          if (offset != null) highestOffset = math.max(highestOffset, offset);
-        }
+          var highestOffset = 0.0;
+          void recordOffset() {
+            final offset = controller.metrics?.offset;
+            if (offset != null) highestOffset = math.max(highestOffset, offset);
+          }
 
-        controller.addListener(recordOffset);
-        addTearDown(() => controller.removeListener(recordOffset));
+          controller.addListener(recordOffset);
+          addTearDown(() => controller.removeListener(recordOffset));
 
-        await tester.flingFrom(_insideSheet(tester), Offset(0, -dragDistance), 8000);
-        for (var i = 0; i < 90; i++) {
-          await tester.pump(const Duration(milliseconds: 16));
-          recordOffset();
-        }
+          await tester.flingFrom(_insideSheet(tester), Offset(0, -dragDistance), 8000);
+          for (var i = 0; i < 90; i++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            recordOffset();
+          }
 
-        expect(highestOffset, lessThanOrEqualTo(_metricsOf(controller).maxOffset + 0.01));
-      }, variant: const TargetPlatformVariant({TargetPlatform.iOS, TargetPlatform.android}));
+          expect(
+            highestOffset,
+            lessThanOrEqualTo(_metricsOf(controller).maxOffset + sheetOvershootExtent + 0.01),
+          );
+        },
+        variant: const TargetPlatformVariant({TargetPlatform.iOS, TargetPlatform.android}),
+      );
     }
   });
 }

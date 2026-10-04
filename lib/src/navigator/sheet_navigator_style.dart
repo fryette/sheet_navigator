@@ -9,5 +9,5 @@ class const SheetNavigatorStyle({
   final SheetPhysics? physics,
   final SheetKeyboardDismissBehavior? keyboardDismissBehavior,
   final bool isKeyboardPaddingEnabled = false,
-  final SheetScrollConfiguration scrollConfiguration = const SheetScrollConfiguration(),
+  final SheetScrollConfiguration? scrollConfiguration,
 });

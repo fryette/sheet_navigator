@@ -23,4 +23,4 @@ dependency_overrides:
   smooth_sheets:
     git:
       url: https://github.com/fryette/smooth_sheets.git
-      ref: da90438a85c45ca2b51f39537b7e95b7a8d7c7e2
+      ref: c3f8f53c2ed7f651de8f49ad453d35cf4e290f12

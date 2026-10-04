@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sheet_navigator/src/stack/sheet_bottom_bleed.dart';
 import 'package:sheet_navigator/src/stack/sheet_visible_content.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
@@ -43,6 +44,12 @@ class const SheetPageContent({
       ],
     );
 
-    return isBounded ? SizedBox(height: contentBoxHeight, child: content) : content;
+    return isBounded
+        ? SheetBottomBleed(
+            viewportHeight: viewportHeight,
+            contentBoxHeight: contentBoxHeight,
+            child: content,
+          )
+        : content;
   }
 }

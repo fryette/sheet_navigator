@@ -12,6 +12,8 @@ export 'src/page/sheet_snap_state.dart';
 export 'src/page/sheet_stop_grid.dart';
 export 'src/route/sheet_navigator_controller.dart';
 export 'src/route/sheet_route.dart';
+export 'src/stack/sheet_bottom_bleed.dart';
+export 'src/stack/sheet_content_bounce.dart';
 export 'src/stack/sheet_controller_extent.dart';
 export 'src/stack/sheet_extent_builder.dart';
 export 'src/stack/sheet_page_content.dart';

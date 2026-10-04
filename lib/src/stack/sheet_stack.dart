@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_style.dart';
 import 'package:sheet_navigator/src/page/sheet_page.dart';
 import 'package:sheet_navigator/src/route/sheet_route.dart';
+import 'package:sheet_navigator/src/stack/sheet_content_bounce.dart';
 import 'package:sheet_navigator/src/stack/sheet_controller_extent.dart';
 import 'package:sheet_navigator/src/stack/sheet_page_content.dart';
 import 'package:sheet_navigator/src/stack/sheet_physics.dart';
@@ -523,6 +524,8 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
 class _LiveSheet {
   final Object key;
   final GlobalKey subtreeKey = GlobalKey();
+  final SheetContentBounce contentBounce = SheetContentBounce();
+  final SnapBounceSheetPhysics physics = SnapBounceSheetPhysics();
   SheetStackEntry entry;
   Animation<double> motion = kAlwaysCompleteAnimation;
   _SheetRole role = .idle;
@@ -593,8 +596,8 @@ class const _SheetStackEntryView({
       snapGrid: SheetSnapGrid(
         snaps: [for (final size in sortedSnapSizes) SheetOffset.proportionalToViewport(size)],
       ),
-      physics: style.physics ?? defaultSheetPhysics,
-      scrollConfiguration: style.scrollConfiguration,
+      physics: style.physics ?? live.physics,
+      scrollConfiguration: style.scrollConfiguration ?? live.contentBounce,
       padding: style.isKeyboardPaddingEnabled
           ? .only(bottom: MediaQuery.viewInsetsOf(context).bottom)
           : .zero,
@@ -611,7 +614,7 @@ class const _SheetStackEntryView({
       ),
       child: SheetPageContent(
         controller: live.entry.controller,
-        builder: page.builder,
+        builder: live.contentBounce.track(page.builder),
         header: page.header,
         handle: style.handleBuilder,
         viewportHeight: viewportHeight,
