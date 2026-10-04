@@ -642,14 +642,19 @@ class const _ViewInsetsGate({required final bool isActive, required final Widget
 
 class _ViewInsetsGateState extends State<_ViewInsetsGate> {
   EdgeInsets? _viewInsets;
+  EdgeInsets? _padding;
+  EdgeInsets? _viewPadding;
 
   @override
   Widget build(BuildContext context) {
     final data = MediaQuery.of(context);
-    if (widget.isActive) _viewInsets = data.viewInsets;
-    _viewInsets ??= data.viewInsets;
+    if (widget.isActive || _viewInsets == null) {
+      _viewInsets = data.viewInsets;
+      _padding = data.padding;
+      _viewPadding = data.viewPadding;
+    }
     return MediaQuery(
-      data: data.copyWith(viewInsets: _viewInsets),
+      data: data.copyWith(viewInsets: _viewInsets, padding: _padding, viewPadding: _viewPadding),
       child: widget.child,
     );
   }

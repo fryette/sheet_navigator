@@ -265,6 +265,7 @@ void main() {
               initialSize: 0.5,
               snapSizes: const [0.5],
               builder: (context, scrollController) {
+                MediaQuery.paddingOf(context);
                 onBuild();
                 return const SizedBox.expand();
               },
@@ -278,7 +279,11 @@ void main() {
           home: ValueListenableBuilder<double>(
             valueListenable: keyboardHeight,
             builder: (context, height, child) => MediaQuery(
-              data: MediaQueryData(viewInsets: EdgeInsets.only(bottom: height)),
+              data: MediaQueryData(
+                viewInsets: EdgeInsets.only(bottom: height),
+                padding: EdgeInsets.only(bottom: height / 2),
+                viewPadding: EdgeInsets.only(bottom: height / 3),
+              ),
               child: child!,
             ),
             child: SheetStack(
@@ -309,6 +314,102 @@ void main() {
         tester.widgetList<Sheet>(find.byType(Sheet, skipOffstage: false)).last.padding,
         const EdgeInsets.only(bottom: 300),
       );
+    });
+
+    group('with a changing keyboard and stack', () {
+      late List<SheetController> controllers;
+      late ValueNotifier<double> keyboardHeight;
+      late ValueNotifier<List<String>> ids;
+
+      setUp(() {
+        controllers = [SheetController(), SheetController()];
+        keyboardHeight = ValueNotifier<double>(0);
+        ids = ValueNotifier<List<String>>(['base']);
+      });
+
+      tearDown(() {
+        for (final controller in controllers) {
+          controller.dispose();
+        }
+        keyboardHeight.dispose();
+        ids.dispose();
+      });
+
+      Future<void> pumpKeyboardStack(WidgetTester tester) => tester.pumpWidget(
+        MaterialApp(
+          home: ValueListenableBuilder<double>(
+            valueListenable: keyboardHeight,
+            builder: (context, height, child) => MediaQuery(
+              data: MediaQueryData(viewInsets: EdgeInsets.only(bottom: height)),
+              child: child!,
+            ),
+            child: ValueListenableBuilder<List<String>>(
+              valueListenable: ids,
+              builder: (context, current, child) => SheetStack(
+                entries: [
+                  for (final (index, id) in current.indexed)
+                    SheetStackEntry(
+                      route: _KeyedRoute(id),
+                      page: SheetPage(
+                        pageKey: id,
+                        initialSize: 0.5,
+                        snapSizes: const [0.5],
+                        builder: (context, scrollController) => const SizedBox.expand(),
+                      ),
+                      controller: controllers[index],
+                    ),
+                ],
+                style: const SheetNavigatorStyle(
+                  surfaceBuilder: _surface,
+                  isKeyboardPaddingEnabled: true,
+                ),
+                onExitCompleted: (_) {},
+                onVisualTopExtentChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      double paddingOf(WidgetTester tester, int index) => tester
+          .widgetList<Sheet>(find.byType(Sheet, skipOffstage: false))
+          .elementAt(index)
+          .padding
+          .bottom;
+
+      testWidgets('gives a covered sheet live insets again once a pop reveals it', (tester) async {
+        keyboardHeight.value = 300;
+        await pumpKeyboardStack(tester);
+        await tester.pumpAndSettle();
+
+        ids.value = ['base', 'top'];
+        await tester.pumpAndSettle();
+        keyboardHeight.value = 0;
+        await tester.pumpAndSettle();
+        expect(paddingOf(tester, 0), 300);
+
+        ids.value = ['base'];
+        await tester.pumpAndSettle();
+
+        expect(paddingOf(tester, 0), 0);
+      });
+
+      testWidgets('gives a transitioning sheet live insets mid-transition', (tester) async {
+        await pumpKeyboardStack(tester);
+        await tester.pumpAndSettle();
+
+        ids.value = ['base', 'top'];
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 10));
+        expect(tester.hasRunningAnimations, isTrue);
+
+        keyboardHeight.value = 300;
+        await tester.pump(const Duration(milliseconds: 10));
+
+        expect(tester.hasRunningAnimations, isTrue);
+        expect(paddingOf(tester, 0), 300);
+        expect(paddingOf(tester, 1), 300);
+      });
     });
 
     testWidgets('hands the style scroll configuration to the sheet', (tester) async {

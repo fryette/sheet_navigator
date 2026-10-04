@@ -260,6 +260,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     _resetSheetInteracting();
     _stackBeforeLayerSwitch ??= oldStack;
+    _dropLiveRoutesFromPendingExits(stack);
 
     final removedRoutes = [
       for (final route in oldStack)
@@ -287,6 +288,21 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         pending.pendingLayerIds.addAll(widget.layers.map((layer) => layer.id));
       }
       _scheduleExitFallback(feature, pending);
+    }
+  }
+
+  void _dropLiveRoutesFromPendingExits(List<R> stack) {
+    final livePageKeys = {for (final route in stack) route.pageKey};
+    for (final MapEntry<F, _PendingFeatureExit<R>>(key: feature, value: pending) in [
+      ..._pendingFeatureExits.entries,
+    ]) {
+      pending.pendingPageKeys.removeWhere(livePageKeys.contains);
+      pending.removedRoutes.removeWhere((route) => livePageKeys.contains(route.pageKey));
+      if (pending.removedRoutes.isNotEmpty || pending.pendingPageKeys.isNotEmpty) continue;
+
+      pending.fallbackTimer?.cancel();
+      pending.pendingLayerIds.clear();
+      _pendingFeatureExits.remove(feature);
     }
   }
 

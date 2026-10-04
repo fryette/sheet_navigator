@@ -92,6 +92,18 @@ class _TestFeature({
   }
 }
 
+class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
+  final exited = <SheetRoute>[];
+
+  new() : super(root: const _RootRoute());
+
+  @override
+  void notifyRouteExited(SheetRoute route) {
+    exited.add(route);
+    super.notifyRouteExited(route);
+  }
+}
+
 class const _DeclarativeHost({
   required final List<_TestFeature> features,
   required final List<SheetRoute> initialStack,
@@ -1045,5 +1057,41 @@ void main() {
       expect(_pageOf(const _ListRoute()), findsNothing);
       expect(returnedToRoot, hasLength(1));
     });
+
+    testWidgets(
+      'a route popped and pushed back in the same frame is never reported exited and keeps '
+      'its layer subtree',
+      (tester) async {
+        final controller = _ExitSpyController();
+        addTearDown(controller.dispose);
+        const route = _ListRoute();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SheetNavigator<SheetRoute, _TestFeature>.controlled(
+              controller: controller,
+              features: [rootFeature(), tripFeature()],
+              style: _style,
+              exitFallbackTimeout: const Duration(milliseconds: 100),
+              layers: const [SheetOverlayLayer(id: 'chrome')],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        controller.push(route);
+        await tester.pumpAndSettle();
+        final layerElement = tester.element(find.text('layer chrome _ListRoute'));
+
+        controller.pop();
+        controller.push(route);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
+
+        expect(controller.exited, isEmpty);
+        expect(tester.element(find.text('layer chrome _ListRoute')), same(layerElement));
+        expect(_pageOf(route), findsOneWidget);
+      },
+    );
   });
 }
