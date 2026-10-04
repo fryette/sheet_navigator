@@ -1,0 +1,26 @@
+name: sheet_navigator
+version: 1.0.0
+description: Declarative bottom-sheet stack navigator with pluggable transitions
+repository: https://github.com/fryette/sheet_navigator
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.4"
+
+dependencies:
+  collection: 1.19.1
+  flutter:
+    sdk: flutter
+  smooth_sheets: 1.2.0
+
+dev_dependencies:
+  flutter_lints: 6.0.0
+  flutter_test:
+    sdk: flutter
+
+dependency_overrides:
+  smooth_sheets:
+    git:
+      url: https://github.com/fryette/smooth_sheets.git
+      ref: da90438a85c45ca2b51f39537b7e95b7a8d7c7e2
