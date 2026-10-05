@@ -6,6 +6,9 @@ class const InstantSheetTransition() extends SheetTransitionStrategy {
   Duration duration(SheetTransitionContext context) => Duration.zero;
 
   @override
+  Duration layerSwitchDuration(SheetTransitionContext context) => Duration.zero;
+
+  @override
   SheetMotion upper(SheetTransitionContext context) => SheetMotion.still;
 
   @override

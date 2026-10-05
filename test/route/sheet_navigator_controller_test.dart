@@ -7,6 +7,24 @@ final class const _ListRoute() extends SheetRoute;
 
 final class const _DetailsRoute() extends SheetRoute;
 
+final class const _DataRoute({required final String id, required final String data})
+    extends SheetRoute {
+  @override
+  Object get pageKey => id;
+}
+
+final class const _FieldRoute({required final String id, required final String data})
+    extends SheetRoute {
+  @override
+  Object get pageKey => id;
+
+  @override
+  bool operator ==(Object other) => other is _FieldRoute && other.id == id && other.data == data;
+
+  @override
+  int get hashCode => Object.hash(id, data);
+}
+
 void main() {
   late SheetNavigatorController<SheetRoute> controller;
 
@@ -49,6 +67,37 @@ void main() {
 
       expect(emissions, isEmpty);
       expect(controller.depth, 1);
+      await subscription.cancel();
+    });
+
+    test('pushing a route already deeper in the stack is a no-op', () async {
+      controller
+        ..push(const _ListRoute())
+        ..push(const _DetailsRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller
+        ..push(const _RootRoute())
+        ..push(const _ListRoute());
+      await pumpEventQueue();
+
+      expect(emissions, isEmpty);
+      expect(controller.stack, const [_RootRoute(), _ListRoute(), _DetailsRoute()]);
+      await subscription.cancel();
+    });
+
+    test('pushing the top page key with new data swaps the top in place', () async {
+      controller.push(const _DataRoute(id: 'a', data: 'first'));
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller.push(const _DataRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(controller.depth, 2);
+      expect((controller.current as _DataRoute).data, 'second');
+      expect(emissions, hasLength(1));
       await subscription.cancel();
     });
 
@@ -259,6 +308,21 @@ void main() {
       await subscription.cancel();
     });
 
+    test('replacing the only route swaps the root and emits the new stack once', () async {
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller.replaceTop(const _DetailsRoute());
+      await pumpEventQueue();
+
+      expect(controller.stack, const [_DetailsRoute()]);
+      expect(controller.depth, 1);
+      expect(emissions, [
+        const [_DetailsRoute()],
+      ]);
+      await subscription.cancel();
+    });
+
     test('replacing the top with the route already on top is a no-op', () async {
       final emissions = <List<SheetRoute>>[];
       final subscription = controller.stackChanges.listen(emissions.add);
@@ -266,6 +330,42 @@ void main() {
       controller.replaceTop(const _RootRoute());
       await pumpEventQueue();
 
+      expect(emissions, isEmpty);
+      await subscription.cancel();
+    });
+
+    test('replacing the top with its page key and new data swaps it in place', () async {
+      controller.push(const _DataRoute(id: 'a', data: 'first'));
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller.replaceTop(const _DataRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(controller.depth, 2);
+      expect((controller.current as _DataRoute).data, 'second');
+      expect(emissions, hasLength(1));
+      await subscription.cancel();
+    });
+
+    test('replacing the root with its page key and new data keeps depth', () {
+      controller
+        ..replaceTop(const _DataRoute(id: 'r', data: 'first'))
+        ..replaceTop(const _DataRoute(id: 'r', data: 'second'));
+
+      expect(controller.depth, 1);
+      expect((controller.current as _DataRoute).data, 'second');
+    });
+
+    test('replacing the top with a page key already lower in the stack is a no-op', () async {
+      controller.push(const _ListRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller.replaceTop(const _RootRoute());
+      await pumpEventQueue();
+
+      expect(controller.stack, const [_RootRoute(), _ListRoute()]);
       expect(emissions, isEmpty);
       await subscription.cancel();
     });
@@ -280,6 +380,43 @@ void main() {
         ..notifyRouteExited(const _ListRoute());
       await pumpEventQueue();
 
+      expect(emissions, isEmpty);
+      await subscription.cancel();
+    });
+  });
+  group('routes that override equality', () {
+    late SheetNavigatorController<SheetRoute> fieldController;
+
+    setUp(
+      () => fieldController = SheetNavigatorController<SheetRoute>(
+        root: const _FieldRoute(id: 'a', data: 'first'),
+      ),
+    );
+
+    tearDown(() => fieldController.dispose());
+
+    test('pushing a page key already in the stack is a no-op', () async {
+      fieldController.push(const _ListRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = fieldController.stackChanges.listen(emissions.add);
+
+      fieldController.push(const _FieldRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(fieldController.stack, const [_FieldRoute(id: 'a', data: 'first'), _ListRoute()]);
+      expect(emissions, isEmpty);
+      await subscription.cancel();
+    });
+
+    test('replacing the top with a page key already lower in the stack is a no-op', () async {
+      fieldController.push(const _ListRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = fieldController.stackChanges.listen(emissions.add);
+
+      fieldController.replaceTop(const _FieldRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(fieldController.stack, const [_FieldRoute(id: 'a', data: 'first'), _ListRoute()]);
       expect(emissions, isEmpty);
       await subscription.cancel();
     });

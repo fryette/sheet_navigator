@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-class const SheetStopGrid._() {
+abstract final class SheetStopGrid {
   static const expandedExtent = 1.0;
   static const _minTopEdgeGap = 100.0;
 

@@ -37,6 +37,12 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
   final Duration exitFallbackTimeout = const Duration(milliseconds: 600),
   super.key,
 }) extends StatefulWidget {
+  this
+    : assert(
+        controller == null || (onPopRequested == null && onRouteExited == null),
+        'A SheetNavigator with a controller takes no onPopRequested or onRouteExited.',
+      );
+
   const new controlled({
     required SheetNavigatorController<R> controller,
     required List<F> features,
@@ -86,7 +92,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   final _visualTopExtent = ValueNotifier<double?>(null);
   final _isTransitionActive = ValueNotifier<bool>(false);
   final _overlayContentKey = GlobalKey();
-  final _pendingFeatureExits = <F, _PendingFeatureExit<R>>{};
+  final _pendingFeatureExits = <int, _PendingFeatureExit<R>>{};
   final _layerSwitcherGenerations = <Object, int>{};
   final _settledSnap = ValueNotifier<SheetSettledSnap?>(null);
   List<R> _stack = const [];
@@ -100,6 +106,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   final _lastSettledExtentByPage = <Object, double>{};
   ValueSetter<double>? _currentSettledFit;
   var _isSettleCheckScheduled = false;
+  bool? _lastPublishedTopFullyExpanded;
   var _isDragUnsettled = false;
   var _isContentScrolling = false;
   ({Object pageKey, double extent})? _pendingSettledFit;
@@ -119,7 +126,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   @override
   void initState() {
     super.initState();
+    assert(
+      widget.controller == null || widget.stack.isEmpty,
+      'A SheetNavigator with a controller takes no stack.',
+    );
     _stack = widget.controller?.stack ?? widget.stack;
+    assert(_stack.isNotEmpty, _emptyStackMessage);
+    assert(_hasUniquePageKeys(_stack), _duplicatePageKeysMessage);
     _subscribeToController();
   }
 
@@ -144,7 +157,8 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           entries.add(SheetStackEntry(route: route, page: page, controller: controller));
         }
         final [..., topRoute] = _stack;
-        final topFeature = _featureFor(topRoute);
+        final topFeatureIndex = _featureIndexFor(topRoute);
+        final topFeature = widget.features[topFeatureIndex];
         final [..., SheetStackEntry(page: topPage)] = entries;
         _resolveLayerSwitchDuration(topRoute, topPage, availableHeight);
         final settledFallbackExtent = topPage.initialSize;
@@ -215,7 +229,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
                   layerContext: layerContext,
                   switcherGeneration: _layerSwitcherGenerations[layer.id] ?? 0,
                   switchDuration: _layerSwitchDuration,
-                  onDispose: () => _handleLayerSubtreeDisposed(topFeature, layer.id),
+                  onDispose: () => _handleLayerSubtreeDisposed(topFeatureIndex, layer.id),
                 ),
                 bottom: topFeature.layerBottom(context, layer.id, topRoute),
               ),
@@ -230,6 +244,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   @override
   void didUpdateWidget(covariant SheetNavigator<R, F> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onTopFullyExpandedChanged == null && widget.onTopFullyExpandedChanged != null) {
+      _lastPublishedTopFullyExpanded = null;
+    }
     if (widget.controller != oldWidget.controller) {
       _controllerSubscription?.cancel();
       _subscribeToController();
@@ -248,10 +265,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final controller in _controllers.values) {
       controller.dispose();
     }
-    _resetSheetInteracting();
     _visualTopExtent.dispose();
     _settledSnap.dispose();
     _isTransitionActive.dispose();
+    _reportInteractionEndedAfterFrame();
     super.dispose();
   }
 
@@ -264,7 +281,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _stack = stack;
     if (identical(oldStack, stack)) return;
 
-    _resetSheetInteracting();
+    assert(stack.isNotEmpty, _emptyStackMessage);
+    assert(_hasUniquePageKeys(stack), _duplicatePageKeysMessage);
+    if (!_hasSamePageKeys(oldStack, stack)) _resetSheetInteracting();
     _stackBeforeLayerSwitch ??= oldStack;
     _dropLiveRoutesFromPendingExits(stack);
 
@@ -277,29 +296,29 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     final [..., oldTopRoute] = oldStack;
     final isOldTopRemoved = !stack.any((route) => route.pageKey == oldTopRoute.pageKey);
 
-    final removedRoutesByFeature = <F, List<R>>{};
+    final removedRoutesByFeature = <int, List<R>>{};
     for (final route in removedRoutes) {
-      (removedRoutesByFeature[_featureFor(route)] ??= []).add(route);
+      (removedRoutesByFeature[_featureIndexFor(route)] ??= []).add(route);
     }
 
-    for (final MapEntry(key: feature, value: featureRemovedRoutes)
+    for (final MapEntry(key: featureIndex, value: featureRemovedRoutes)
         in removedRoutesByFeature.entries) {
-      final isStillLiveElsewhere = stack.any((route) => _featureFor(route) == feature);
-      if (isStillLiveElsewhere) continue;
-
-      final pending = _pendingFeatureExits.putIfAbsent(feature, _PendingFeatureExit<R>.new);
+      final isStillLiveElsewhere = stack.any((route) => _featureIndexFor(route) == featureIndex);
+      final pending = _pendingFeatureExits.putIfAbsent(featureIndex, _PendingFeatureExit<R>.new);
       pending.pendingPageKeys.addAll(featureRemovedRoutes.map((route) => route.pageKey));
       pending.removedRoutes.addAll(featureRemovedRoutes);
-      if (isOldTopRemoved && _featureFor(oldTopRoute) == feature) {
+      if (!isStillLiveElsewhere &&
+          isOldTopRemoved &&
+          _featureIndexFor(oldTopRoute) == featureIndex) {
         pending.pendingLayerIds.addAll(widget.layers.map((layer) => layer.id));
       }
-      _scheduleExitFallback(feature, pending);
+      _scheduleExitFallback(featureIndex, pending);
     }
   }
 
   void _dropLiveRoutesFromPendingExits(List<R> stack) {
     final livePageKeys = {for (final route in stack) route.pageKey};
-    for (final MapEntry<F, _PendingFeatureExit<R>>(key: feature, value: pending) in [
+    for (final MapEntry<int, _PendingFeatureExit<R>>(key: featureIndex, value: pending) in [
       ..._pendingFeatureExits.entries,
     ]) {
       pending.pendingPageKeys.removeWhere(livePageKeys.contains);
@@ -308,7 +327,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
       pending.fallbackTimer?.cancel();
       pending.pendingLayerIds.clear();
-      _pendingFeatureExits.remove(feature);
+      _pendingFeatureExits.remove(featureIndex);
     }
   }
 
@@ -348,7 +367,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _layerSwitchDuration = widget.transitions.resolve(transition).layerSwitchDuration(transition);
   }
 
-  F _featureFor(R route) => widget.features.firstWhere((feature) => feature.handles(route));
+  int _featureIndexFor(R route) => widget.features.indexWhere((feature) => feature.handles(route));
+
+  F _featureFor(R route) => widget.features[_featureIndexFor(route)];
 
   SheetController _controllerFor(Object pageKey) =>
       _controllers.putIfAbsent(pageKey, SheetController.new);
@@ -366,12 +387,12 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     final route = isLive ? _routesByPageKey[pageKey] : _routesByPageKey.remove(pageKey);
     if (route == null) return;
 
-    final feature = _featureFor(route);
-    _pendingFeatureExits[feature]?.pendingPageKeys.remove(pageKey);
+    final featureIndex = _featureIndexFor(route);
+    _pendingFeatureExits[featureIndex]?.pendingPageKeys.remove(pageKey);
     if (isLive) {
-      if (_pendingFeatureExits[feature] case final pending?) {
+      if (_pendingFeatureExits[featureIndex] case final pending?) {
         pending.removedRoutes.removeWhere((removed) => removed.pageKey == pageKey);
-        _tryCompleteExit(feature, pending);
+        _tryCompleteExit(featureIndex, pending);
       }
       return;
     }
@@ -379,35 +400,39 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
-    if (_pendingFeatureExits[feature] case final pending?) _tryCompleteExit(feature, pending);
+    if (_pendingFeatureExits[featureIndex] case final pending?) {
+      _tryCompleteExit(featureIndex, pending);
+    }
   }
 
-  void _handleLayerSubtreeDisposed(F feature, Object layerId) {
-    final pending = _pendingFeatureExits[feature];
+  void _handleLayerSubtreeDisposed(int featureIndex, Object layerId) {
+    final pending = _pendingFeatureExits[featureIndex];
     if (pending == null || !pending.pendingLayerIds.remove(layerId)) return;
 
-    _tryCompleteExit(feature, pending);
+    _tryCompleteExit(featureIndex, pending);
   }
 
-  void _tryCompleteExit(F feature, _PendingFeatureExit<R> pending) {
+  void _tryCompleteExit(int featureIndex, _PendingFeatureExit<R> pending) {
     if (!pending.isSettled) return;
 
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _applyExitCompleted(feature, pending));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _applyExitCompleted(featureIndex, pending),
+      );
     } else {
-      _applyExitCompleted(feature, pending);
+      _applyExitCompleted(featureIndex, pending);
     }
   }
 
   void _applyExitCompleted(
-    F feature,
+    int featureIndex,
     _PendingFeatureExit<R> pending, {
     Set<Object> resetLayerIds = const {},
   }) {
-    if (!mounted || _pendingFeatureExits[feature] != pending) return;
+    if (!mounted || _pendingFeatureExits[featureIndex] != pending) return;
     pending.fallbackTimer?.cancel();
     setState(() {
-      _pendingFeatureExits.remove(feature);
+      _pendingFeatureExits.remove(featureIndex);
       for (final layerId in resetLayerIds) {
         _layerSwitcherGenerations[layerId] = (_layerSwitcherGenerations[layerId] ?? 0) + 1;
       }
@@ -425,30 +450,30 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
   }
 
-  void _scheduleExitFallback(F feature, _PendingFeatureExit<R> pending) {
+  void _scheduleExitFallback(int featureIndex, _PendingFeatureExit<R> pending) {
     pending.fallbackTimer?.cancel();
     final fallbackDelay = widget.exitFallbackTimeout * timeDilation;
     pending.fallbackTimer = Timer(fallbackDelay, () {
-      if (!mounted || _pendingFeatureExits[feature] != pending) return;
+      if (!mounted || _pendingFeatureExits[featureIndex] != pending) return;
 
       final resetLayerIds = {...pending.pendingLayerIds};
       pending.pendingPageKeys.clear();
       pending.pendingLayerIds.clear();
-      _applyExitCompleted(feature, pending, resetLayerIds: resetLayerIds);
+      _applyExitCompleted(featureIndex, pending, resetLayerIds: resetLayerIds);
     });
   }
 
   List<F> get _orderedFeatures {
-    final orderedFeatures = <F>[];
+    final orderedFeatureIndexes = <int>[];
     for (final route in _stack) {
-      final feature = _featureFor(route);
-      if (!orderedFeatures.contains(feature)) orderedFeatures.add(feature);
+      final featureIndex = _featureIndexFor(route);
+      if (!orderedFeatureIndexes.contains(featureIndex)) orderedFeatureIndexes.add(featureIndex);
     }
-    for (final feature in _pendingFeatureExits.keys) {
-      if (!orderedFeatures.contains(feature)) orderedFeatures.add(feature);
+    for (final featureIndex in _pendingFeatureExits.keys) {
+      if (!orderedFeatureIndexes.contains(featureIndex)) orderedFeatureIndexes.add(featureIndex);
     }
 
-    return orderedFeatures;
+    return [for (final featureIndex in orderedFeatureIndexes) widget.features[featureIndex]];
   }
 
   void _publishVisualTopExtent(double? value) {
@@ -524,7 +549,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   void _publishTransitionActive(bool value) {
     if (_isTransitionActive.value == value) return;
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _publishTransitionActive(value));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _publishTransitionActive(value);
+      });
     } else {
       _isTransitionActive.value = value;
       _publishSettledSnap();
@@ -539,13 +566,25 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (onChanged == null) return;
 
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _publishTopSheetFullyExpanded(value));
-    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _publishTopSheetFullyExpanded(value);
+      });
+    } else if (_lastPublishedTopFullyExpanded != value) {
+      _lastPublishedTopFullyExpanded = value;
       onChanged(value);
     }
   }
 
+  void _reportInteractionEndedAfterFrame() {
+    final onChanged = widget.onSheetInteractingChanged;
+    if (!_isSheetInteracting || onChanged == null) return;
+
+    SchedulerBinding.instance.addPostFrameCallback((_) => onChanged(false));
+  }
+
   void _handleSheetDraggingChanged(bool isDragging) {
+    if (!mounted) return;
+
     if (isDragging) {
       _updateSheetInteracting(isDragUnsettled: true);
     } else if (_isTopPageRestingOnSnap) {
@@ -555,8 +594,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   void _handleDragSettled() => _updateSheetInteracting(isDragUnsettled: false);
 
-  void _handleSheetContentScrollingChanged(bool isScrolling) =>
-      _updateSheetInteracting(isContentScrolling: isScrolling);
+  void _handleSheetContentScrollingChanged(bool isScrolling) {
+    if (!mounted) return;
+
+    _updateSheetInteracting(isContentScrolling: isScrolling);
+  }
 
   void _updateSheetInteracting({bool? isDragUnsettled, bool? isContentScrolling}) {
     final wasInteracting = _isSheetInteracting;
@@ -585,6 +627,16 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     widget.onSheetInteractingChanged?.call(false);
   }
 }
+
+const _emptyStackMessage = 'A SheetNavigator needs at least one route in its stack.';
+const _duplicatePageKeysMessage = 'Every route in a SheetNavigator stack needs a unique pageKey.';
+
+bool _hasUniquePageKeys(List<SheetRoute> stack) =>
+    stack.map((route) => route.pageKey).toSet().length == stack.length;
+
+bool _hasSamePageKeys(List<SheetRoute> first, List<SheetRoute> second) =>
+    first.length == second.length &&
+    first.indexed.every((entry) => entry.$2.pageKey == second[entry.$1].pageKey);
 
 bool _isTopSheetFullyExpanded(double? extent, double expandedExtent) =>
     extent != null && extent >= expandedExtent - _fullyExpandedExtentTolerance;

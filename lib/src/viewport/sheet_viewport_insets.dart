@@ -69,6 +69,10 @@ class _SheetViewportInsetsState() extends State<SheetViewportInsets> {
   @override
   void didUpdateWidget(covariant SheetViewportInsets oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onRenderPaddingChanged == null && widget.onRenderPaddingChanged != null) {
+      _targetRenderPadding = null;
+      _schedulePublish();
+    }
     if (oldWidget.availableHeight != widget.availableHeight ||
         oldWidget.pinnedExtent != widget.pinnedExtent ||
         oldWidget.topInset != widget.topInset ||

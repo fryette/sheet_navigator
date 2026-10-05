@@ -92,16 +92,100 @@ class _TestFeature({
   }
 }
 
+class _ScopedTripFeature({required super.matcher, required super.log}) extends _TestFeature {
+  @override
+  Widget scope(BuildContext context, Widget child) =>
+      KeyedSubtree(key: const ValueKey('trip_scope'), child: child);
+}
+
 class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
   final exited = <SheetRoute>[];
 
-  new() : super(root: const _RootRoute());
+  new({super.root = const _RootRoute()});
 
   @override
   void notifyRouteExited(SheetRoute route) {
     exited.add(route);
     super.notifyRouteExited(route);
   }
+}
+
+class const _ParentSetStateHost({
+  required final List<_TestFeature> features,
+  required final VoidCallback onBuild,
+}) extends StatefulWidget {
+  @override
+  State<_ParentSetStateHost> createState() => _ParentSetStateHostState();
+}
+
+class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
+  @override
+  Widget build(BuildContext context) {
+    widget.onBuild();
+    return SheetNavigator<SheetRoute, _TestFeature>(
+      features: widget.features,
+      stack: const [_RootRoute()],
+      style: _style,
+      onTopFullyExpandedChanged: (_) => setState(() {}),
+    );
+  }
+}
+
+class const _LateCallbackHost({
+  required final List<_TestFeature> features,
+  required final ValueChanged<bool> onValue,
+  required final VoidCallback onBuild,
+  super.key,
+}) extends StatefulWidget {
+  @override
+  State<_LateCallbackHost> createState() => _LateCallbackHostState();
+}
+
+class _LateCallbackHostState() extends State<_LateCallbackHost> {
+  bool isAttached = false;
+
+  @override
+  Widget build(BuildContext context) {
+    widget.onBuild();
+    return SheetNavigator<SheetRoute, _TestFeature>(
+      features: widget.features,
+      stack: const [_RootRoute()],
+      style: _style,
+      onTopFullyExpandedChanged: isAttached
+          ? (value) {
+              widget.onValue(value);
+              setState(() {});
+            }
+          : null,
+    );
+  }
+
+  void attach() => setState(() => isAttached = true);
+
+  void detach() => setState(() => isAttached = false);
+}
+
+class const _RemovableNavigatorHost({required final List<_TestFeature> features, super.key})
+    extends StatefulWidget {
+  @override
+  State<_RemovableNavigatorHost> createState() => _RemovableNavigatorHostState();
+}
+
+class _RemovableNavigatorHostState() extends State<_RemovableNavigatorHost> {
+  bool isNavigatorVisible = true;
+  bool isInteracting = false;
+
+  @override
+  Widget build(BuildContext context) => isNavigatorVisible
+      ? SheetNavigator<SheetRoute, _TestFeature>(
+          features: widget.features,
+          stack: const [_RootRoute()],
+          style: _style,
+          onSheetInteractingChanged: (value) => setState(() => isInteracting = value),
+        )
+      : const SizedBox();
+
+  void removeNavigator() => setState(() => isNavigatorVisible = false);
 }
 
 class const _DeclarativeHost({
@@ -213,22 +297,21 @@ void main() {
   }
 
   group('declarative stack', () {
-    testWidgets(
-      'a route popped while its feature still owns a lower route is not reported exited',
-      (tester) async {
-        final hostKey = await pumpHost(tester);
-        hostKey.currentState?.push(const _ListRoute());
-        await tester.pumpAndSettle();
-        hostKey.currentState?.push(const _DetailsRoute());
-        await tester.pumpAndSettle();
+    testWidgets('a route popped while its feature still owns a lower route is reported exited', (
+      tester,
+    ) async {
+      final hostKey = await pumpHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      hostKey.currentState?.push(const _DetailsRoute());
+      await tester.pumpAndSettle();
 
-        hostKey.currentState?.pop();
-        await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
 
-        expect(_pageOf(const _DetailsRoute()), findsNothing);
-        expect(exited, isEmpty);
-      },
-    );
+      expect(_pageOf(const _DetailsRoute()), findsNothing);
+      expect(exited, [const _DetailsRoute()]);
+    });
 
     testWidgets('a push mounts the new page on top and keeps the covered page mounted', (
       tester,
@@ -451,6 +534,190 @@ void main() {
       await pumpHost(tester, onTopFullyExpandedChanged: signals.add);
 
       expect(signals.lastOrNull, isFalse);
+    });
+  });
+
+  group('feature identity', () {
+    testWidgets('a features list rebuilt on every build still reports exits at the normal time', (
+      tester,
+    ) async {
+      var stack = const <SheetRoute>[_RootRoute()];
+      late StateSetter setStack;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              setStack = setState;
+              return SheetNavigator<SheetRoute, _TestFeature>(
+                features: [rootFeature(), tripFeature()],
+                stack: stack,
+                style: _style,
+                layers: const [SheetOverlayLayer(id: 'chrome')],
+                onRouteExited: exited.add,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      setStack(() => stack = const [_RootRoute(), _ListRoute()]);
+      await tester.pumpAndSettle();
+
+      setStack(() => stack = const [_RootRoute()]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 450));
+
+      expect(exited, [const _ListRoute()]);
+    });
+  });
+
+  group('feature scope', () {
+    testWidgets('a feature scope stays mounted until its routes have exited', (tester) async {
+      final hostKey = await pumpHost(
+        tester,
+        features: [
+          rootFeature(),
+          _ScopedTripFeature(matcher: (route) => route is _ListRoute, log: log),
+        ],
+      );
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+
+      hostKey.currentState?.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const ValueKey('trip_scope')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('trip_scope')), findsNothing);
+    });
+  });
+
+  group('controller exclusivity', () {
+    SheetNavigator<SheetRoute, _TestFeature> build({
+      List<SheetRoute> stack = const [],
+      VoidCallback? onPopRequested,
+      ValueChanged<SheetRoute>? onRouteExited,
+    }) => SheetNavigator<SheetRoute, _TestFeature>(
+      features: const [],
+      stack: stack,
+      style: _style,
+      controller: SheetNavigatorController<SheetRoute>(root: const _RootRoute()),
+      onPopRequested: onPopRequested,
+      onRouteExited: onRouteExited,
+    );
+
+    testWidgets('a controller with a stack fails an assertion', (tester) async {
+      await tester.pumpWidget(MaterialApp(home: build(stack: const [_RootRoute()])));
+
+      expect(
+        tester.takeException(),
+        isA<AssertionError>().having((error) => '${error.message}', 'message', contains('stack')),
+      );
+    });
+
+    test('a controller with onPopRequested fails an assertion', () {
+      expect(() => build(onPopRequested: () {}), throwsA(isA<AssertionError>()));
+    });
+
+    test('a controller with onRouteExited fails an assertion', () {
+      expect(() => build(onRouteExited: (_) {}), throwsA(isA<AssertionError>()));
+    });
+
+    test('a controller alone is accepted', () {
+      expect(build, returnsNormally);
+    });
+  });
+
+  group('stack validation', () {
+    testWidgets('an empty uncontrolled stack fails an assertion naming the stack', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>(
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            stack: const [],
+            style: _style,
+          ),
+        ),
+      );
+
+      expect(
+        tester.takeException(),
+        isA<AssertionError>().having((error) => '${error.message}', 'message', contains('stack')),
+      );
+    });
+
+    testWidgets('a declarative stack with a repeated page key fails an assertion', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>(
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            stack: const [_KeyedRoute('a'), _KeyedRoute('b'), _KeyedRoute('a')],
+            style: _style,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isA<AssertionError>());
+    });
+  });
+
+  group('parent rebuilds from callbacks', () {
+    testWidgets('setState in onTopFullyExpandedChanged does not rebuild forever', (tester) async {
+      var builds = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ParentSetStateHost(
+            features: [rootFeature(), tripFeature()],
+            onBuild: () => builds++,
+          ),
+        ),
+      );
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(builds, lessThan(5));
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+  });
+
+  group('attaching onTopFullyExpandedChanged', () {
+    testWidgets('a callback attached after an earlier one was removed receives the current value', (
+      tester,
+    ) async {
+      final values = <bool>[];
+      var builds = 0;
+      final hostKey = GlobalKey<_LateCallbackHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _LateCallbackHost(
+            key: hostKey,
+            features: [rootFeature(), tripFeature()],
+            onValue: values.add,
+            onBuild: () => builds++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      hostKey.currentState?.attach();
+      await tester.pumpAndSettle();
+      expect(values, [false]);
+      hostKey.currentState?.detach();
+      await tester.pumpAndSettle();
+      builds = 0;
+
+      hostKey.currentState?.attach();
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(values, [false, false]);
+      expect(builds, lessThan(6));
+      expect(tester.binding.hasScheduledFrame, isFalse);
     });
   });
 
@@ -701,6 +968,66 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(signals, [true, false]);
+    });
+
+    testWidgets('removing the navigator mid-drag does not call back into a locked tree', (
+      tester,
+    ) async {
+      final hostKey = GlobalKey<_RemovableNavigatorHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RemovableNavigatorHost(key: hostKey, features: [rootFeature(), tripFeature()]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(sheetDragStartOf(tester));
+      await gesture.moveBy(const Offset(0, -40));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -40));
+      await tester.pump();
+      expect(hostKey.currentState?.isInteracting, isTrue);
+
+      hostKey.currentState?.removeNavigator();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(hostKey.currentState?.isInteracting, isFalse);
+      await gesture.up();
+    });
+
+    testWidgets('removing a scrolling navigator reports the interaction as ended afterwards', (
+      tester,
+    ) async {
+      final hostKey = GlobalKey<_RemovableNavigatorHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RemovableNavigatorHost(
+            key: hostKey,
+            features: [
+              rootFeature(initialSize: 0.9, snapSizes: const [0.9], hasScrollableBody: true),
+              tripFeature(),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(tester.getCenter(_pageOf(const _RootRoute())));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump();
+      expect(hostKey.currentState?.isInteracting, isTrue);
+
+      hostKey.currentState?.removeNavigator();
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(hostKey.currentState?.isInteracting, isFalse);
+      await gesture.up();
     });
 
     testWidgets('scrolling the sheet content turns interaction on and off with the gesture', (
@@ -1055,6 +1382,67 @@ void main() {
 
       expect(controller.depth, 1);
       expect(_pageOf(const _ListRoute()), findsNothing);
+      expect(returnedToRoot, hasLength(1));
+    });
+
+    testWidgets('returns to the root when the popped route shares a feature with the root', (
+      tester,
+    ) async {
+      final controller = SheetNavigatorController<SheetRoute>(root: const _KeyedRoute('a'));
+      addTearDown(controller.dispose);
+      final returnedToRoot = <void>[];
+      final subscription = controller.returnedToRoot.listen(returnedToRoot.add);
+      addTearDown(subscription.cancel);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>.controlled(
+            controller: controller,
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            style: _style,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.push(const _KeyedRoute('b'));
+      await tester.pumpAndSettle();
+
+      controller.pop();
+      await tester.pumpAndSettle();
+
+      expect(returnedToRoot, hasLength(1));
+    });
+
+    testWidgets('returns to the root after popToRoot over routes sharing a feature', (
+      tester,
+    ) async {
+      final controller = _ExitSpyController(root: const _KeyedRoute('a'));
+      addTearDown(controller.dispose);
+      final returnedToRoot = <void>[];
+      final subscription = controller.returnedToRoot.listen(returnedToRoot.add);
+      addTearDown(subscription.cancel);
+      final shared = _TestFeature(matcher: (route) => route.pageKey != 'b', log: log);
+      final other = _TestFeature(matcher: (route) => route.pageKey == 'b', log: log);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>.controlled(
+            controller: controller,
+            features: [shared, other],
+            style: _style,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller
+        ..push(const _KeyedRoute('b'))
+        ..push(const _KeyedRoute('c'));
+      await tester.pumpAndSettle();
+
+      controller.popToRoot();
+      await tester.pumpAndSettle();
+
+      expect(controller.exited.map((route) => route.pageKey), unorderedEquals(['b', 'c']));
       expect(returnedToRoot, hasLength(1));
     });
 
