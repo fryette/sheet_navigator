@@ -22,7 +22,7 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
   Stream<void> get returnedToRoot => _returnedToRootController.stream;
 
   void push(R route) {
-    if (route == current) return;
+    if (stack.contains(route)) return;
 
     _tail.add(route);
     _emitStackChange();

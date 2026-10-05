@@ -52,6 +52,23 @@ void main() {
       await subscription.cancel();
     });
 
+    test('pushing a route already deeper in the stack is a no-op', () async {
+      controller
+        ..push(const _ListRoute())
+        ..push(const _DetailsRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller
+        ..push(const _RootRoute())
+        ..push(const _ListRoute());
+      await pumpEventQueue();
+
+      expect(emissions, isEmpty);
+      expect(controller.stack, const [_RootRoute(), _ListRoute(), _DetailsRoute()]);
+      await subscription.cancel();
+    });
+
     test('pop at the root returns false and emits nothing', () async {
       final emissions = <List<SheetRoute>>[];
       final subscription = controller.stackChanges.listen(emissions.add);

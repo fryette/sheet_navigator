@@ -484,6 +484,22 @@ void main() {
     });
   });
 
+  group('stack validation', () {
+    testWidgets('a declarative stack with a repeated page key fails an assertion', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>(
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            stack: const [_KeyedRoute('a'), _KeyedRoute('b'), _KeyedRoute('a')],
+            style: _style,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isA<AssertionError>());
+    });
+  });
+
   group('parent rebuilds from callbacks', () {
     testWidgets('setState in onTopFullyExpandedChanged does not rebuild forever', (tester) async {
       var builds = 0;
