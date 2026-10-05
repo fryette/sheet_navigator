@@ -31,4 +31,4 @@ export 'src/transition/sheet_transition_strategy.dart';
 export 'src/transition/top_to_top_pop_transition.dart';
 export 'src/transition/travel_sheet_transition.dart';
 export 'src/viewport/sheet_following_overlay.dart';
-export 'src/viewport/sheet_viewport_insets.dart';
+export 'src/viewport/sheet_resting_viewport.dart';

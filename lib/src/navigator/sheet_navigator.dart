@@ -18,6 +18,7 @@ import 'package:sheet_navigator/src/stack/sheet_stack.dart';
 import 'package:sheet_navigator/src/transition/sheet_motion_tokens.dart';
 import 'package:sheet_navigator/src/transition/sheet_transition_context.dart';
 import 'package:sheet_navigator/src/transition/sheet_transition_factory.dart';
+import 'package:sheet_navigator/src/viewport/sheet_resting_viewport.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
 class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
@@ -34,6 +35,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
   final ValueChanged<bool>? onTopFullyExpandedChanged,
   final ValueChanged<bool>? onSheetInteractingChanged,
   final ValueChanged<double?>? onVisualTopExtentChanged,
+  final ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
   final Duration exitFallbackTimeout = const Duration(milliseconds: 600),
   super.key,
 }) extends StatefulWidget {
@@ -54,6 +56,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
     ValueChanged<bool>? onTopFullyExpandedChanged,
     ValueChanged<bool>? onSheetInteractingChanged,
     ValueChanged<double?>? onVisualTopExtentChanged,
+    ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
     Duration exitFallbackTimeout = const Duration(milliseconds: 600),
     Key? key,
   }) : this(
@@ -68,6 +71,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
          onTopFullyExpandedChanged: onTopFullyExpandedChanged,
          onSheetInteractingChanged: onSheetInteractingChanged,
          onVisualTopExtentChanged: onVisualTopExtentChanged,
+         onRestingViewportChanged: onRestingViewportChanged,
          exitFallbackTimeout: exitFallbackTimeout,
          key: key,
        );
@@ -104,12 +108,19 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   double? _topPageInitialSize;
   List<double> _topPageSnapSizes = const [];
   final _lastSettledExtentByPage = <Object, double>{};
+  final _confirmedSnapByPage = <Object, double>{};
   ValueSetter<double>? _currentSettledFit;
   var _isSettleCheckScheduled = false;
   bool? _lastPublishedTopFullyExpanded;
   var _isDragUnsettled = false;
   var _isContentScrolling = false;
   ({Object pageKey, double extent})? _pendingSettledFit;
+  SheetPage? _restingTopPage;
+  var _restingSize = Size.zero;
+  var _restingPageKeys = const <Object>[];
+  SheetRestingViewport? _lastReportedRestingViewport;
+  var _isRestingReportScheduled = false;
+  var _isActive = true;
 
   bool get _isSheetInteracting => _isDragUnsettled || _isContentScrolling;
 
@@ -134,6 +145,18 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     assert(_stack.isNotEmpty, _emptyStackMessage);
     assert(_hasUniquePageKeys(_stack), _duplicatePageKeysMessage);
     _subscribeToController();
+    _settledSnap.addListener(_scheduleRestingViewportReport);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isActive = TickerMode.valuesOf(context).enabled && Visibility.of(context);
+    if (isActive && !_isActive) {
+      _lastReportedRestingViewport = null;
+      _scheduleRestingViewportReport();
+    }
+    _isActive = isActive;
   }
 
   @override
@@ -167,8 +190,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
             : topPage.snapSizes.reduce(math.max);
         _topPageExpandedExtent = topPageExpandedExtent;
         _topPageKey = topRoute.pageKey;
+        _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
         _topPageSnapSizes = topPage.snapSizes;
+        _restingTopPage = topPage;
+        _restingSize = Size(availableWidth, availableHeight);
+        _restingPageKeys = [for (final route in _stack) route.pageKey];
+        _scheduleRestingViewportReport();
         _publishTopSheetFullyExpanded(
           _isTopSheetFullyExpanded(_settledTopPageExtent, topPageExpandedExtent),
         );
@@ -244,6 +272,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   @override
   void didUpdateWidget(covariant SheetNavigator<R, F> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onRestingViewportChanged == null && widget.onRestingViewportChanged != null) {
+      _lastReportedRestingViewport = null;
+    }
     if (oldWidget.onTopFullyExpandedChanged == null && widget.onTopFullyExpandedChanged != null) {
       _lastPublishedTopFullyExpanded = null;
     }
@@ -266,6 +297,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       controller.dispose();
     }
     _visualTopExtent.dispose();
+    _settledSnap.removeListener(_scheduleRestingViewportReport);
     _settledSnap.dispose();
     _isTransitionActive.dispose();
     _reportInteractionEndedAfterFrame();
@@ -291,6 +323,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       for (final route in oldStack)
         if (!stack.any((current) => current.pageKey == route.pageKey)) route,
     ];
+    for (final route in removedRoutes) {
+      _confirmedSnapByPage.remove(route.pageKey);
+    }
     if (removedRoutes.isEmpty) return;
 
     final [..., oldTopRoute] = oldStack;
@@ -400,6 +435,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
+    _confirmedSnapByPage.remove(pageKey);
     if (_pendingFeatureExits[featureIndex] case final pending?) {
       _tryCompleteExit(featureIndex, pending);
     }
@@ -492,6 +528,33 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
   }
 
+  void _scheduleRestingViewportReport() {
+    if (_isRestingReportScheduled || widget.onRestingViewportChanged == null) return;
+
+    _isRestingReportScheduled = true;
+    SchedulerBinding.instance
+      ..addPostFrameCallback((_) => _reportRestingViewport())
+      ..ensureVisualUpdate();
+  }
+
+  void _reportRestingViewport() {
+    _isRestingReportScheduled = false;
+    final topPage = _restingTopPage;
+    final onChanged = widget.onRestingViewportChanged;
+    if (!mounted || !_isActive || topPage == null || onChanged == null) return;
+
+    final viewport = SheetRestingViewport.resolve(
+      topPage: topPage,
+      settledSnap: _settledSnap.value,
+      size: _restingSize,
+      pageKeys: _restingPageKeys,
+    );
+    if (viewport == null || viewport == _lastReportedRestingViewport) return;
+
+    _lastReportedRestingViewport = viewport;
+    onChanged(viewport);
+  }
+
   void _publishSettledSnap() {
     final extent = _controllers[_topPageKey]?.extent;
     if (_isSettleCheckScheduled || extent == null) return;
@@ -515,11 +578,25 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final snap in _topPageSnapSizes) {
       if ((extent - snap).abs() <= _settledSnapTolerance) {
         _settledSnap.value = (pageKey: pageKey, extent: snap);
+        _confirmedSnapByPage[pageKey] = snap;
         _recordSettledSnap(pageKey, snap);
         _handleDragSettled();
         return;
       }
     }
+  }
+
+  void _restoreRememberedSnap(Object pageKey) {
+    final snap = _confirmedSnapByPage[pageKey];
+    if (snap == null || _settledSnap.value?.pageKey == pageKey) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final isLive = _stack.any((route) => route.pageKey == pageKey);
+      if (!mounted || !isLive || _topPageKey != pageKey) return;
+
+      final remembered = _confirmedSnapByPage[pageKey];
+      if (remembered != null) _settledSnap.value = (pageKey: pageKey, extent: remembered);
+    });
   }
 
   void _recordSettledSnap(Object pageKey, double snap) {
@@ -554,6 +631,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       });
     } else {
       _isTransitionActive.value = value;
+      if (!value) _isSettleCheckScheduled = false;
       _publishSettledSnap();
       _publishTopSheetFullyExpanded(
         _isTopSheetFullyExpanded(_settledTopPageExtent, _topPageExpandedExtent),

@@ -197,6 +197,7 @@ class const _DeclarativeHost({
   final ValueChanged<bool>? onTopFullyExpandedChanged,
   final ValueChanged<bool>? onSheetInteractingChanged,
   final ValueChanged<double?>? onVisualTopExtentChanged,
+  final ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
   super.key,
 }) extends StatefulWidget {
   @override
@@ -219,6 +220,7 @@ class _DeclarativeHostState() extends State<_DeclarativeHost> {
     onTopFullyExpandedChanged: widget.onTopFullyExpandedChanged,
     onSheetInteractingChanged: widget.onSheetInteractingChanged,
     onVisualTopExtentChanged: widget.onVisualTopExtentChanged,
+    onRestingViewportChanged: widget.onRestingViewportChanged,
   );
 
   void push(SheetRoute route) => setState(() => _stack = [..._stack, route]);
@@ -272,11 +274,11 @@ void main() {
     ValueChanged<bool>? onTopFullyExpandedChanged,
     ValueChanged<bool>? onSheetInteractingChanged,
     ValueChanged<double?>? onVisualTopExtentChanged,
+    ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+    Widget Function(Widget host)? wrap,
   }) async {
     final hostKey = GlobalKey<_DeclarativeHostState>();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: _DeclarativeHost(
+    final host = _DeclarativeHost(
           key: hostKey,
           features: features ?? [rootFeature(), tripFeature()],
           initialStack: initialStack,
@@ -285,13 +287,13 @@ void main() {
           onTopFullyExpandedChanged: onTopFullyExpandedChanged,
           onSheetInteractingChanged: onSheetInteractingChanged,
           onVisualTopExtentChanged: onVisualTopExtentChanged,
+          onRestingViewportChanged: onRestingViewportChanged,
           onRouteExited: (route) {
             expect(_pageOf(route), findsNothing);
             exited.add(route);
           },
-        ),
-      ),
-    );
+        );
+    await tester.pumpWidget(MaterialApp(home: wrap?.call(host) ?? host));
     await tester.pumpAndSettle();
     return hostKey;
   }
@@ -743,6 +745,257 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(log, ['top _ListRoute']);
+    });
+  });
+
+  group('settled snap memory', () {
+    final settledSnaps = <SheetSettledSnap?>[];
+
+    double viewportHeightOf(WidgetTester tester) =>
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    Future<GlobalKey<_DeclarativeHostState>> pumpRecordingHost(
+      WidgetTester tester,
+    ) {
+      settledSnaps.clear();
+      return pumpHost(
+        tester,
+        sheetLayerWrapper: (context, viewport, sheetLayer) {
+          settledSnaps.add(viewport.settledSnap);
+          return sheetLayer;
+        },
+      );
+    }
+
+    Future<void> dragRootToLargestSnap(WidgetTester tester) async {
+      await tester.dragFrom(
+        Offset(400, viewportHeightOf(tester) - 10),
+        Offset(0, -0.3 * viewportHeightOf(tester)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a revealed page publishes the snap it was left resting at', (
+      tester,
+    ) async {
+      final hostKey = await pumpRecordingHost(tester);
+      await dragRootToLargestSnap(tester);
+      final rootSnap = settledSnaps.last;
+      expect(rootSnap?.pageKey, const _RootRoute().pageKey);
+      expect(rootSnap?.extent, isNot(0.5));
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      expect(settledSnaps.last?.pageKey, const _ListRoute().pageKey);
+
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(settledSnaps.last, rootSnap);
+    });
+
+    testWidgets(
+      'the remembered snap is published as soon as the page is top again',
+      (tester) async {
+        final hostKey = await pumpRecordingHost(tester);
+        await dragRootToLargestSnap(tester);
+        final rootSnap = settledSnaps.last;
+        hostKey.currentState?.push(const _ListRoute());
+        await tester.pumpAndSettle();
+
+        hostKey.currentState?.pop();
+        await tester.pump();
+        await tester.pump();
+
+        expect(settledSnaps.last, rootSnap);
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'a page resting at a snap is confirmed when the transition ends',
+      (tester) async {
+        final hostKey = await pumpRecordingHost(tester);
+
+        hostKey.currentState?.push(const _ListRoute());
+        await tester.pumpAndSettle();
+        hostKey.currentState?.pop();
+        await tester.pumpAndSettle();
+
+        expect(settledSnaps.last, (
+          pageKey: const _RootRoute().pageKey,
+          extent: 0.5,
+        ));
+      },
+    );
+
+    testWidgets('a removed route is forgotten when it returns to the stack', (
+      tester,
+    ) async {
+      final hostKey = await pumpRecordingHost(tester);
+      await dragRootToLargestSnap(tester);
+
+      hostKey.currentState?.setStack(const [_ListRoute()]);
+      await tester.pumpAndSettle();
+      hostKey.currentState?.setStack(const [_RootRoute(), _ListRoute()]);
+      await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(settledSnaps.last, (
+        pageKey: const _RootRoute().pageKey,
+        extent: 0.5,
+      ));
+    });
+  });
+
+  group('resting viewport', () {
+    final reports = <SheetRestingViewport>[];
+
+    double viewportHeightOf(WidgetTester tester) =>
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    Future<GlobalKey<_DeclarativeHostState>> pumpReportingHost(
+      WidgetTester tester, {
+      Widget Function(Widget host)? wrap,
+    }) {
+      reports.clear();
+      return pumpHost(
+        tester,
+        wrap: wrap,
+        onRestingViewportChanged: reports.add,
+      );
+    }
+
+    testWidgets('reports once when first laid out', (tester) async {
+      await pumpReportingHost(tester);
+
+      final height = viewportHeightOf(tester);
+      expect(reports, hasLength(1));
+      expect(reports.single.restingExtent, 0.5);
+      expect(reports.single.insets, EdgeInsets.only(top: 12, bottom: 0.5 * height + 12));
+      expect(reports.single.size.height, height);
+      expect(reports.single.topPageKey, const _RootRoute().pageKey);
+      expect(reports.single.pageKeys, [const _RootRoute().pageKey]);
+    });
+
+    testWidgets('does not report again for an unchanged rebuild', (tester) async {
+      final hostKey = await pumpReportingHost(tester);
+
+      hostKey.currentState?.setStack(hostKey.currentState!._stack.toList());
+      await tester.pumpAndSettle();
+
+      expect(reports, hasLength(1));
+    });
+
+    testWidgets('reports the new resting extent when the sheet settles on another snap', (
+      tester,
+    ) async {
+      await pumpReportingHost(tester);
+
+      await tester.dragFrom(
+        Offset(400, viewportHeightOf(tester) - 10),
+        Offset(0, 0.25 * viewportHeightOf(tester)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(reports.map((report) => report.restingExtent), [0.5, 0.2]);
+    });
+
+    testWidgets('reports the stack when a page is pushed and popped', (tester) async {
+      final hostKey = await pumpReportingHost(tester);
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      expect(reports.last.topPageKey, const _ListRoute().pageKey);
+      expect(reports.last.pageKeys, [const _RootRoute().pageKey, const _ListRoute().pageKey]);
+
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+      expect(reports.last.topPageKey, const _RootRoute().pageKey);
+      expect(reports.last.pageKeys, [const _RootRoute().pageKey]);
+    });
+
+    testWidgets('reports the remembered snap of the page revealed by a pop', (tester) async {
+      final hostKey = await pumpReportingHost(tester);
+      await tester.dragFrom(
+        Offset(400, viewportHeightOf(tester) - 10),
+        Offset(0, 0.25 * viewportHeightOf(tester)),
+      );
+      await tester.pumpAndSettle();
+      expect(reports.last.restingExtent, 0.2);
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      expect(reports.last.restingExtent, 0.5);
+
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(reports.last.topPageKey, const _RootRoute().pageKey);
+      expect(reports.last.restingExtent, 0.2);
+    });
+
+    testWidgets('is silent while ticker mode is disabled and reports again on re-enable', (
+      tester,
+    ) async {
+      var isEnabled = false;
+      late StateSetter setHostState;
+      await pumpReportingHost(
+        tester,
+        wrap: (host) => StatefulBuilder(
+          builder: (context, setState) {
+            setHostState = setState;
+            return TickerMode(enabled: isEnabled, child: host);
+          },
+        ),
+      );
+      expect(reports, isEmpty);
+
+      setHostState(() => isEnabled = true);
+      await tester.pumpAndSettle();
+
+      expect(reports, hasLength(1));
+
+      setHostState(() => isEnabled = false);
+      await tester.pumpAndSettle();
+      setHostState(() => isEnabled = true);
+      await tester.pumpAndSettle();
+
+      expect(reports, hasLength(2));
+      expect(reports.first, reports.last);
+    });
+
+    testWidgets('reports once a listener is attached later', (tester) async {
+      final reportsLater = <SheetRestingViewport>[];
+      Widget host({ValueChanged<SheetRestingViewport>? onChanged}) => MaterialApp(
+        home: SheetNavigator<SheetRoute, _TestFeature>(
+          features: [rootFeature()],
+          stack: const [_RootRoute()],
+          style: _style,
+          onRestingViewportChanged: onChanged,
+        ),
+      );
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host(onChanged: reportsLater.add));
+      await tester.pumpAndSettle();
+
+      expect(reportsLater, hasLength(1));
+    });
+
+    testWidgets('the viewport state exposes the resting extent', (tester) async {
+      final extents = <double?>[];
+      await pumpHost(
+        tester,
+        sheetLayerWrapper: (context, viewport, sheetLayer) {
+          extents.add(viewport.restingExtent);
+          return sheetLayer;
+        },
+      );
+
+      expect(extents.last, 0.5);
     });
   });
 
