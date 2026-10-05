@@ -93,26 +93,41 @@ void main() {
       );
     });
 
-    test('every built-in switches layers in 320 ms on push and replace and 380 ms on pop', () {
-      const strategies = [
-        InPlaceSheetTransition(),
-        TravelSheetTransition(),
-        TopToTopPopTransition(),
-        InstantSheetTransition(),
-      ];
+    test(
+      'every animated built-in switches layers in 320 ms on push and replace and 380 ms on pop',
+      () {
+        const strategies = [
+          InPlaceSheetTransition(),
+          TravelSheetTransition(),
+          TopToTopPopTransition(),
+        ];
 
-      for (final strategy in strategies) {
+        for (final strategy in strategies) {
+          expect(
+            strategy.layerSwitchDuration(_context(.push, fromExtent: 0.9, toExtent: 0.5)),
+            sheetPushDuration,
+          );
+          expect(
+            strategy.layerSwitchDuration(_context(.replace, fromExtent: 0.9, toExtent: 0.5)),
+            sheetPushDuration,
+          );
+          expect(
+            strategy.layerSwitchDuration(_context(.pop, fromExtent: 0.2, toExtent: 0.9)),
+            sheetPopDuration,
+          );
+        }
+      },
+    );
+  });
+
+  group('instant layer switch', () {
+    test('switches layers with no delay for every operation', () {
+      for (final operation in SheetTransitionOperation.values) {
         expect(
-          strategy.layerSwitchDuration(_context(.push, fromExtent: 0.9, toExtent: 0.5)),
-          sheetPushDuration,
-        );
-        expect(
-          strategy.layerSwitchDuration(_context(.replace, fromExtent: 0.9, toExtent: 0.5)),
-          sheetPushDuration,
-        );
-        expect(
-          strategy.layerSwitchDuration(_context(.pop, fromExtent: 0.2, toExtent: 0.9)),
-          sheetPopDuration,
+          const InstantSheetTransition().layerSwitchDuration(
+            _context(operation, fromExtent: 0.9, toExtent: 0.5),
+          ),
+          Duration.zero,
         );
       }
     });
