@@ -921,6 +921,42 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(hostKey.currentState?.isInteracting, isFalse);
+      await gesture.up();
+    });
+
+    testWidgets('removing a scrolling navigator reports the interaction as ended afterwards', (
+      tester,
+    ) async {
+      final hostKey = GlobalKey<_RemovableNavigatorHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RemovableNavigatorHost(
+            key: hostKey,
+            features: [
+              rootFeature(initialSize: 0.9, snapSizes: const [0.9], hasScrollableBody: true),
+              tripFeature(),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(tester.getCenter(_pageOf(const _RootRoute())));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump();
+      expect(hostKey.currentState?.isInteracting, isTrue);
+
+      hostKey.currentState?.removeNavigator();
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(hostKey.currentState?.isInteracting, isFalse);
       await gesture.up();
     });
 

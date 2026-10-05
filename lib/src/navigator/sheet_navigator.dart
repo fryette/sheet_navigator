@@ -258,6 +258,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _visualTopExtent.dispose();
     _settledSnap.dispose();
     _isTransitionActive.dispose();
+    _reportInteractionEndedAfterFrame();
     super.dispose();
   }
 
@@ -608,7 +609,16 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
   }
 
+  void _reportInteractionEndedAfterFrame() {
+    final onChanged = widget.onSheetInteractingChanged;
+    if (!_isSheetInteracting || onChanged == null) return;
+
+    SchedulerBinding.instance.addPostFrameCallback((_) => onChanged(false));
+  }
+
   void _handleSheetDraggingChanged(bool isDragging) {
+    if (!mounted) return;
+
     if (isDragging) {
       _updateSheetInteracting(isDragUnsettled: true);
     } else if (_isTopPageRestingOnSnap) {
@@ -618,8 +628,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   void _handleDragSettled() => _updateSheetInteracting(isDragUnsettled: false);
 
-  void _handleSheetContentScrollingChanged(bool isScrolling) =>
-      _updateSheetInteracting(isContentScrolling: isScrolling);
+  void _handleSheetContentScrollingChanged(bool isScrolling) {
+    if (!mounted) return;
+
+    _updateSheetInteracting(isContentScrolling: isScrolling);
+  }
 
   void _updateSheetInteracting({bool? isDragUnsettled, bool? isContentScrolling}) {
     final wasInteracting = _isSheetInteracting;

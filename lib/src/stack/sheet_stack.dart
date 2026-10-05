@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_style.dart';
 import 'package:sheet_navigator/src/page/sheet_page.dart';
 import 'package:sheet_navigator/src/route/sheet_route.dart';
@@ -102,6 +103,8 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
       _detachExtentListener(live);
     }
     _running?.dispose();
+    _reportEndedAfterFrame(_isDragging, widget.onSheetDraggingChanged);
+    _reportEndedAfterFrame(_isContentScrolling, widget.onSheetContentScrollingChanged);
     super.dispose();
   }
 
@@ -455,6 +458,12 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
         _setContentScrolling(false);
     }
     return false;
+  }
+
+  void _reportEndedAfterFrame(bool isActive, ValueChanged<bool>? onChanged) {
+    if (!isActive || onChanged == null) return;
+
+    SchedulerBinding.instance.addPostFrameCallback((_) => onChanged(false));
   }
 
   void _setDragging(bool value) {
