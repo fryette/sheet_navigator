@@ -508,6 +508,23 @@ void main() {
   });
 
   group('stack validation', () {
+    testWidgets('an empty uncontrolled stack fails an assertion naming the stack', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>(
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            stack: const [],
+            style: _style,
+          ),
+        ),
+      );
+
+      expect(
+        tester.takeException(),
+        isA<AssertionError>().having((error) => '${error.message}', 'message', contains('stack')),
+      );
+    });
+
     testWidgets('a declarative stack with a repeated page key fails an assertion', (tester) async {
       await tester.pumpWidget(
         MaterialApp(

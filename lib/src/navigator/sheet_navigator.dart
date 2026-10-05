@@ -124,6 +124,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   void initState() {
     super.initState();
     _stack = widget.controller?.stack ?? widget.stack;
+    assert(_stack.isNotEmpty, _emptyStackMessage);
     assert(_hasUniquePageKeys(_stack), _duplicatePageKeysMessage);
     _subscribeToController();
   }
@@ -259,6 +260,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _stack = stack;
     if (identical(oldStack, stack)) return;
 
+    assert(stack.isNotEmpty, _emptyStackMessage);
     assert(_hasUniquePageKeys(stack), _duplicatePageKeysMessage);
     _resetSheetInteracting();
     _stackBeforeLayerSwitch ??= oldStack;
@@ -624,6 +626,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 }
 
+const _emptyStackMessage = 'A SheetNavigator needs at least one route in its stack.';
 const _duplicatePageKeysMessage = 'Every route in a SheetNavigator stack needs a unique pageKey.';
 
 bool _hasUniquePageKeys(List<SheetRoute> stack) =>
