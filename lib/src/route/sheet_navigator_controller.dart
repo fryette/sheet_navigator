@@ -22,6 +22,10 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
   Stream<void> get returnedToRoot => _returnedToRootController.stream;
 
   void push(R route) {
+    if (route.pageKey == current.pageKey) {
+      _updateTop(route);
+      return;
+    }
     if (stack.contains(route)) return;
 
     _tail.add(route);
@@ -47,13 +51,13 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
   }
 
   void replaceTop(R route) {
-    if (route == current) return;
-
-    if (_tail.isEmpty) {
-      _root = route;
-    } else {
-      _tail[_tail.length - 1] = route;
+    if (route.pageKey == current.pageKey) {
+      _updateTop(route);
+      return;
     }
+    if (stack.contains(route)) return;
+
+    _setTop(route);
     _emitStackChange();
   }
 
@@ -67,6 +71,21 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
   void dispose() {
     unawaited(_stackChangesController.close());
     unawaited(_returnedToRootController.close());
+  }
+
+  void _updateTop(R route) {
+    if (identical(route, current)) return;
+
+    _setTop(route);
+    _emitStackChange();
+  }
+
+  void _setTop(R route) {
+    if (_tail.isEmpty) {
+      _root = route;
+    } else {
+      _tail[_tail.length - 1] = route;
+    }
   }
 
   void _armPendingRootReturn(Set<Object> pageKeys) {
