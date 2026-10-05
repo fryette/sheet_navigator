@@ -104,6 +104,37 @@ class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
   }
 }
 
+class const _ParentSetStateHost({
+  required final List<_TestFeature> features,
+  required final VoidCallback onBuild,
+  final bool rebuildOnTopFullyExpanded = false,
+  final bool rebuildOnSheetInteracting = false,
+  super.key,
+}) extends StatefulWidget {
+  @override
+  State<_ParentSetStateHost> createState() => _ParentSetStateHostState();
+}
+
+class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
+  var _signal = false;
+
+  @override
+  Widget build(BuildContext context) {
+    widget.onBuild();
+    return SheetNavigator<SheetRoute, _TestFeature>(
+      features: widget.features,
+      stack: const [_RootRoute()],
+      style: _style,
+      onTopFullyExpandedChanged: widget.rebuildOnTopFullyExpanded
+          ? (value) => setState(() => _signal = value)
+          : null,
+      onSheetInteractingChanged: widget.rebuildOnSheetInteracting
+          ? (value) => setState(() => _signal = value)
+          : null,
+    );
+  }
+}
+
 class const _DeclarativeHost({
   required final List<_TestFeature> features,
   required final List<SheetRoute> initialStack,
@@ -451,6 +482,28 @@ void main() {
       await pumpHost(tester, onTopFullyExpandedChanged: signals.add);
 
       expect(signals.lastOrNull, isFalse);
+    });
+  });
+
+  group('parent rebuilds from callbacks', () {
+    testWidgets('setState in onTopFullyExpandedChanged does not rebuild forever', (tester) async {
+      var builds = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ParentSetStateHost(
+            features: [rootFeature(), tripFeature()],
+            onBuild: () => builds++,
+            rebuildOnTopFullyExpanded: true,
+          ),
+        ),
+      );
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(builds, lessThan(5));
+      expect(tester.binding.hasScheduledFrame, isFalse);
     });
   });
 

@@ -103,6 +103,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   final _lastSettledExtentByPage = <Object, double>{};
   ValueSetter<double>? _currentSettledFit;
   var _isSettleCheckScheduled = false;
+  bool? _lastPublishedTopFullyExpanded;
   var _isDragUnsettled = false;
   var _isContentScrolling = false;
   ({Object pageKey, double extent})? _pendingSettledFit;
@@ -577,7 +578,8 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _publishTopSheetFullyExpanded(value));
-    } else {
+    } else if (_lastPublishedTopFullyExpanded != value) {
+      _lastPublishedTopFullyExpanded = value;
       onChanged(value);
     }
   }
