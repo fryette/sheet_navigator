@@ -37,6 +37,12 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
   final Duration exitFallbackTimeout = const Duration(milliseconds: 600),
   super.key,
 }) extends StatefulWidget {
+  this
+    : assert(
+        controller == null || (onPopRequested == null && onRouteExited == null),
+        'A SheetNavigator with a controller takes no onPopRequested or onRouteExited.',
+      );
+
   const new controlled({
     required SheetNavigatorController<R> controller,
     required List<F> features,
@@ -123,6 +129,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   @override
   void initState() {
     super.initState();
+    assert(
+      widget.controller == null || widget.stack.isEmpty,
+      'A SheetNavigator with a controller takes no stack.',
+    );
     _stack = widget.controller?.stack ?? widget.stack;
     assert(_stack.isNotEmpty, _emptyStackMessage);
     assert(_hasUniquePageKeys(_stack), _duplicatePageKeysMessage);

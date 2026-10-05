@@ -561,6 +561,42 @@ void main() {
     });
   });
 
+  group('controller exclusivity', () {
+    SheetNavigator<SheetRoute, _TestFeature> build({
+      List<SheetRoute> stack = const [],
+      VoidCallback? onPopRequested,
+      ValueChanged<SheetRoute>? onRouteExited,
+    }) => SheetNavigator<SheetRoute, _TestFeature>(
+      features: const [],
+      stack: stack,
+      style: _style,
+      controller: SheetNavigatorController<SheetRoute>(root: const _RootRoute()),
+      onPopRequested: onPopRequested,
+      onRouteExited: onRouteExited,
+    );
+
+    testWidgets('a controller with a stack fails an assertion', (tester) async {
+      await tester.pumpWidget(MaterialApp(home: build(stack: const [_RootRoute()])));
+
+      expect(
+        tester.takeException(),
+        isA<AssertionError>().having((error) => '${error.message}', 'message', contains('stack')),
+      );
+    });
+
+    test('a controller with onPopRequested fails an assertion', () {
+      expect(() => build(onPopRequested: () {}), throwsA(isA<AssertionError>()));
+    });
+
+    test('a controller with onRouteExited fails an assertion', () {
+      expect(() => build(onRouteExited: (_) {}), throwsA(isA<AssertionError>()));
+    });
+
+    test('a controller alone is accepted', () {
+      expect(build, returnsNormally);
+    });
+  });
+
   group('stack validation', () {
     testWidgets('an empty uncontrolled stack fails an assertion naming the stack', (tester) async {
       await tester.pumpWidget(
