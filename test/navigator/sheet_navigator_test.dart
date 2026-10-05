@@ -746,6 +746,107 @@ void main() {
     });
   });
 
+  group('settled snap memory', () {
+    final settledSnaps = <SheetSettledSnap?>[];
+
+    double viewportHeightOf(WidgetTester tester) =>
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    Future<GlobalKey<_DeclarativeHostState>> pumpRecordingHost(
+      WidgetTester tester,
+    ) {
+      settledSnaps.clear();
+      return pumpHost(
+        tester,
+        sheetLayerWrapper: (context, viewport, sheetLayer) {
+          settledSnaps.add(viewport.settledSnap);
+          return sheetLayer;
+        },
+      );
+    }
+
+    Future<void> dragRootToLargestSnap(WidgetTester tester) async {
+      await tester.dragFrom(
+        Offset(400, viewportHeightOf(tester) - 10),
+        Offset(0, -0.3 * viewportHeightOf(tester)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a revealed page publishes the snap it was left resting at', (
+      tester,
+    ) async {
+      final hostKey = await pumpRecordingHost(tester);
+      await dragRootToLargestSnap(tester);
+      final rootSnap = settledSnaps.last;
+      expect(rootSnap?.pageKey, const _RootRoute().pageKey);
+      expect(rootSnap?.extent, isNot(0.5));
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      expect(settledSnaps.last?.pageKey, const _ListRoute().pageKey);
+
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(settledSnaps.last, rootSnap);
+    });
+
+    testWidgets(
+      'the remembered snap is published as soon as the page is top again',
+      (tester) async {
+        final hostKey = await pumpRecordingHost(tester);
+        await dragRootToLargestSnap(tester);
+        final rootSnap = settledSnaps.last;
+        hostKey.currentState?.push(const _ListRoute());
+        await tester.pumpAndSettle();
+
+        hostKey.currentState?.pop();
+        await tester.pump();
+        await tester.pump();
+
+        expect(settledSnaps.last, rootSnap);
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'a page resting at a snap is confirmed when the transition ends',
+      (tester) async {
+        final hostKey = await pumpRecordingHost(tester);
+
+        hostKey.currentState?.push(const _ListRoute());
+        await tester.pumpAndSettle();
+        hostKey.currentState?.pop();
+        await tester.pumpAndSettle();
+
+        expect(settledSnaps.last, (
+          pageKey: const _RootRoute().pageKey,
+          extent: 0.5,
+        ));
+      },
+    );
+
+    testWidgets('a removed route is forgotten when it returns to the stack', (
+      tester,
+    ) async {
+      final hostKey = await pumpRecordingHost(tester);
+      await dragRootToLargestSnap(tester);
+
+      hostKey.currentState?.setStack(const [_ListRoute()]);
+      await tester.pumpAndSettle();
+      hostKey.currentState?.setStack(const [_RootRoute(), _ListRoute()]);
+      await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(settledSnaps.last, (
+        pageKey: const _RootRoute().pageKey,
+        extent: 0.5,
+      ));
+    });
+  });
+
   group('onSettledAfterDrag', () {
     double viewportHeightOf(WidgetTester tester) =>
         tester.view.physicalSize.height / tester.view.devicePixelRatio;

@@ -104,6 +104,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   double? _topPageInitialSize;
   List<double> _topPageSnapSizes = const [];
   final _lastSettledExtentByPage = <Object, double>{};
+  final _confirmedSnapByPage = <Object, double>{};
   ValueSetter<double>? _currentSettledFit;
   var _isSettleCheckScheduled = false;
   bool? _lastPublishedTopFullyExpanded;
@@ -167,6 +168,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
             : topPage.snapSizes.reduce(math.max);
         _topPageExpandedExtent = topPageExpandedExtent;
         _topPageKey = topRoute.pageKey;
+        _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
         _topPageSnapSizes = topPage.snapSizes;
         _publishTopSheetFullyExpanded(
@@ -291,6 +293,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       for (final route in oldStack)
         if (!stack.any((current) => current.pageKey == route.pageKey)) route,
     ];
+    for (final route in removedRoutes) {
+      _confirmedSnapByPage.remove(route.pageKey);
+    }
     if (removedRoutes.isEmpty) return;
 
     final [..., oldTopRoute] = oldStack;
@@ -400,6 +405,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
+    _confirmedSnapByPage.remove(pageKey);
     if (_pendingFeatureExits[featureIndex] case final pending?) {
       _tryCompleteExit(featureIndex, pending);
     }
@@ -515,11 +521,25 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final snap in _topPageSnapSizes) {
       if ((extent - snap).abs() <= _settledSnapTolerance) {
         _settledSnap.value = (pageKey: pageKey, extent: snap);
+        _confirmedSnapByPage[pageKey] = snap;
         _recordSettledSnap(pageKey, snap);
         _handleDragSettled();
         return;
       }
     }
+  }
+
+  void _restoreRememberedSnap(Object pageKey) {
+    final snap = _confirmedSnapByPage[pageKey];
+    if (snap == null || _settledSnap.value?.pageKey == pageKey) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final isLive = _stack.any((route) => route.pageKey == pageKey);
+      if (!mounted || !isLive || _topPageKey != pageKey) return;
+
+      final remembered = _confirmedSnapByPage[pageKey];
+      if (remembered != null) _settledSnap.value = (pageKey: pageKey, extent: remembered);
+    });
   }
 
   void _recordSettledSnap(Object pageKey, double snap) {
@@ -554,6 +574,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       });
     } else {
       _isTransitionActive.value = value;
+      if (!value) _isSettleCheckScheduled = false;
       _publishSettledSnap();
       _publishTopSheetFullyExpanded(
         _isTopSheetFullyExpanded(_settledTopPageExtent, _topPageExpandedExtent),
