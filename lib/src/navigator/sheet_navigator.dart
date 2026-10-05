@@ -563,7 +563,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   void _publishTransitionActive(bool value) {
     if (_isTransitionActive.value == value) return;
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _publishTransitionActive(value));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _publishTransitionActive(value);
+      });
     } else {
       _isTransitionActive.value = value;
       _publishSettledSnap();
@@ -578,7 +580,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (onChanged == null) return;
 
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _publishTopSheetFullyExpanded(value));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _publishTopSheetFullyExpanded(value);
+      });
     } else if (_lastPublishedTopFullyExpanded != value) {
       _lastPublishedTopFullyExpanded = value;
       onChanged(value);
