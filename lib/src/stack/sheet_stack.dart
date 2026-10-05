@@ -574,15 +574,28 @@ class const _SheetStackEntryView({
                 Transform.translate(offset: Offset(0, live.dyFor(viewportHeight)), child: child),
             child: _ViewInsetsGate(
               isActive: live.isPainted,
-              child: Builder(builder: _sheet),
+              child: _SheetStackEntrySheet(
+                live: live,
+                style: style,
+                viewportHeight: viewportHeight,
+                onNotification: onNotification,
+              ),
             ),
           ),
         ),
       ),
     ),
   );
+}
 
-  Widget _sheet(BuildContext context) {
+class const _SheetStackEntrySheet({
+  required final _LiveSheet live,
+  required final SheetNavigatorStyle style,
+  required final double viewportHeight,
+  required final NotificationListenerCallback<SheetNotification> onNotification,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     final page = live.entry.page;
     final sortedSnapSizes = page.snapSizes.toSet().toList()..sort();
     final maxSize = sortedSnapSizes.isEmpty ? page.initialSize : sortedSnapSizes.reduce(math.max);

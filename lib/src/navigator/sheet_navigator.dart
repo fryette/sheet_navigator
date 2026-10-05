@@ -84,9 +84,6 @@ const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
 const _sequencedLayerOutgoingOpacityCurve = Interval(1 - _sequencedLayerCrossoverPoint, 1);
 
-Widget _sequencedLayerTransitionBuilder(Widget child, Animation<double> animation) =>
-    _SequencedLayerFade(animation: animation, child: child);
-
 class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     extends State<SheetNavigator<R, F>> {
   final _controllers = <Object, SheetController>{};
@@ -140,80 +137,84 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final availableHeight = constraints.maxHeight;
-      final availableWidth = constraints.maxWidth;
-      final entries = <SheetStackEntry>[];
-      for (final route in _stack) {
-        _routesByPageKey[route.pageKey] = route;
-        final isNewPage = !_controllers.containsKey(route.pageKey);
-        final controller = _controllerFor(route.pageKey);
-        final page = _featureFor(route).page(context, route, availableHeight, controller);
-        if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
-        _pagesByPageKey[route.pageKey] = page;
-        entries.add(SheetStackEntry(route: route, page: page, controller: controller));
-      }
-      final [..., topRoute] = _stack;
-      final topFeature = _featureFor(topRoute);
-      final [..., SheetStackEntry(page: topPage)] = entries;
-      _resolveLayerSwitchDuration(topRoute, topPage, availableHeight);
-      final settledFallbackExtent = topPage.initialSize;
-      final topPageExpandedExtent = topPage.snapSizes.isEmpty
-          ? 1.0
-          : topPage.snapSizes.reduce(math.max);
-      _topPageExpandedExtent = topPageExpandedExtent;
-      _topPageKey = topRoute.pageKey;
-      _topPageInitialSize = topPage.initialSize;
-      _topPageSnapSizes = topPage.snapSizes;
-      _publishTopSheetFullyExpanded(
-        _isTopSheetFullyExpanded(_settledTopPageExtent, topPageExpandedExtent),
-      );
+  Widget build(BuildContext context) => _FeatureScopes<R, F>(
+    features: _orderedFeatures,
+    visualTopExtent: _visualTopExtent,
+    isTransitionActive: _isTransitionActive,
+    requestPop: _requestPop,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight;
+        final availableWidth = constraints.maxWidth;
+        final entries = <SheetStackEntry>[];
+        for (final route in _stack) {
+          _routesByPageKey[route.pageKey] = route;
+          final isNewPage = !_controllers.containsKey(route.pageKey);
+          final controller = _controllerFor(route.pageKey);
+          final page = _featureFor(route).page(context, route, availableHeight, controller);
+          if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
+          _pagesByPageKey[route.pageKey] = page;
+          entries.add(SheetStackEntry(route: route, page: page, controller: controller));
+        }
+        final [..., topRoute] = _stack;
+        final topFeatureIndex = _featureIndexFor(topRoute);
+        final topFeature = widget.features[topFeatureIndex];
+        final [..., SheetStackEntry(page: topPage)] = entries;
+        _resolveLayerSwitchDuration(topRoute, topPage, availableHeight);
+        final settledFallbackExtent = topPage.initialSize;
+        final topPageExpandedExtent = topPage.snapSizes.isEmpty
+            ? 1.0
+            : topPage.snapSizes.reduce(math.max);
+        _topPageExpandedExtent = topPageExpandedExtent;
+        _topPageKey = topRoute.pageKey;
+        _topPageInitialSize = topPage.initialSize;
+        _topPageSnapSizes = topPage.snapSizes;
+        _publishTopSheetFullyExpanded(
+          _isTopSheetFullyExpanded(_settledTopPageExtent, topPageExpandedExtent),
+        );
 
-      final sheetLayerChild = _SheetLayer<R, F>(
-        topRouteKey: topRoute.pageKey,
-        topFeature: topFeature,
-        topRoute: topRoute,
-        availableHeight: availableHeight,
-        entries: entries,
-        style: widget.style,
-        transitions: widget.transitions,
-        onExitCompleted: _handleSheetExitCompleted,
-        onVisualTopExtentChanged: _publishVisualTopExtent,
-        onTransitionActiveChanged: _publishTransitionActive,
-        onSettledFitReady: (fit) => _currentSettledFit = fit,
-        onSheetDraggingChanged: _handleSheetDraggingChanged,
-        onSheetContentScrollingChanged: _handleSheetContentScrollingChanged,
-      );
-      final sheetLayer = ValueListenableBuilder(
-        key: widget.sheetLayerKey,
-        valueListenable: _settledSnap,
-        builder: (context, settledSnap, _) => switch (widget.sheetLayerWrapper) {
-          final wrapper? => wrapper(
-            context,
-            SheetViewportState(
-              topPage: topPage,
-              availableWidth: availableWidth,
-              availableHeight: availableHeight,
-              settledSnap: settledSnap,
+        final sheetLayerChild = _SheetLayer<R, F>(
+          topRouteKey: topRoute.pageKey,
+          topFeature: topFeature,
+          topRoute: topRoute,
+          availableHeight: availableHeight,
+          entries: entries,
+          style: widget.style,
+          transitions: widget.transitions,
+          onExitCompleted: _handleSheetExitCompleted,
+          onVisualTopExtentChanged: _publishVisualTopExtent,
+          onTransitionActiveChanged: _publishTransitionActive,
+          onSettledFitReady: (fit) => _currentSettledFit = fit,
+          onSheetDraggingChanged: _handleSheetDraggingChanged,
+          onSheetContentScrollingChanged: _handleSheetContentScrollingChanged,
+        );
+        final sheetLayer = ValueListenableBuilder(
+          key: widget.sheetLayerKey,
+          valueListenable: _settledSnap,
+          builder: (context, settledSnap, _) => switch (widget.sheetLayerWrapper) {
+            final wrapper? => wrapper(
+              context,
+              SheetViewportState(
+                topPage: topPage,
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                settledSnap: settledSnap,
+              ),
+              sheetLayerChild,
             ),
-            sheetLayerChild,
-          ),
-          null => sheetLayerChild,
-        },
-      );
-      final layerContext = SheetLayerContext<R, F>(
-        topRoute: topRoute,
-        topFeature: topFeature,
-        topPage: topPage,
-        visualTopExtent: _visualTopExtent,
-        availableWidth: availableWidth,
-        availableHeight: availableHeight,
-      );
+            null => sheetLayerChild,
+          },
+        );
+        final layerContext = SheetLayerContext<R, F>(
+          topRoute: topRoute,
+          topFeature: topFeature,
+          topPage: topPage,
+          visualTopExtent: _visualTopExtent,
+          availableWidth: availableWidth,
+          availableHeight: availableHeight,
+        );
 
-      return _wrapInScopes(
-        context,
-        _OrderedOverlayLayers(
+        return _OrderedOverlayLayers(
           key: _overlayContentKey,
           extent: _visualTopExtent,
           isTransitionActive: _isTransitionActive,
@@ -223,15 +224,21 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
             for (final layer in widget.layers)
               (
                 key: layer.key,
-                content: _layerContent(context, layer, layerContext),
+                content: _OverlayLayerContent<R, F>(
+                  layer: layer,
+                  layerContext: layerContext,
+                  switcherGeneration: _layerSwitcherGenerations[layer.id] ?? 0,
+                  switchDuration: _layerSwitchDuration,
+                  onDispose: () => _handleLayerSubtreeDisposed(topFeatureIndex, layer.id),
+                ),
                 bottom: topFeature.layerBottom(context, layer.id, topRoute),
               ),
           ],
           settledFallbackExtent: settledFallbackExtent,
           fullyExpandedExtent: topPageExpandedExtent,
-        ),
-      );
-    },
+        );
+      },
+    ),
   );
 
   @override
@@ -360,41 +367,6 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _layerSwitchDuration = widget.transitions.resolve(transition).layerSwitchDuration(transition);
   }
 
-  Widget _layerContent(
-    BuildContext context,
-    SheetOverlayLayer<R, F> layer,
-    SheetLayerContext<R, F> layerContext,
-  ) {
-    final topRoute = layerContext.topRoute;
-    final topFeature = layerContext.topFeature;
-    final topFeatureIndex = _featureIndexFor(topRoute);
-    final switcher = AnimatedSwitcher(
-      key: ValueKey(_layerSwitcherGenerations[layer.id] ?? 0),
-      duration: _layerSwitchDuration,
-      transitionBuilder: _sequencedLayerTransitionBuilder,
-      child: KeyedSubtree(
-        key: ValueKey(topRoute.pageKey),
-        child: _RouteWidgetLifecycle(
-          onDispose: () => _handleLayerSubtreeDisposed(topFeatureIndex, layer.id),
-          child: topFeature.layer(context, layer.id, topRoute) ?? const SizedBox.shrink(),
-        ),
-      ),
-    );
-    return switch (layer.persistentBuilder) {
-      final persistentBuilder? => Stack(
-        children: [
-          Positioned.fill(
-            child: Builder(
-              builder: (innerContext) => persistentBuilder(innerContext, layerContext),
-            ),
-          ),
-          Positioned.fill(child: switcher),
-        ],
-      ),
-      null => switcher,
-    };
-  }
-
   int _featureIndexFor(R route) => widget.features.indexWhere((feature) => feature.handles(route));
 
   F _featureFor(R route) => widget.features[_featureIndexFor(route)];
@@ -491,7 +463,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     });
   }
 
-  Widget _wrapInScopes(BuildContext context, Widget child) {
+  List<F> get _orderedFeatures {
     final orderedFeatureIndexes = <int>[];
     for (final route in _stack) {
       final featureIndex = _featureIndexFor(route);
@@ -501,16 +473,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       if (!orderedFeatureIndexes.contains(featureIndex)) orderedFeatureIndexes.add(featureIndex);
     }
 
-    final scoped = orderedFeatureIndexes.reversed.fold(
-      child,
-      (scoped, featureIndex) => widget.features[featureIndex].scope(context, scoped),
-    );
-    return SheetNavigatorScope(
-      visualTopExtent: _visualTopExtent,
-      isTransitionActive: _isTransitionActive,
-      requestPop: _requestPop,
-      child: scoped,
-    );
+    return [for (final featureIndex in orderedFeatureIndexes) widget.features[featureIndex]];
   }
 
   void _publishVisualTopExtent(double? value) {
@@ -687,6 +650,23 @@ class _PendingFeatureExit<R extends SheetRoute>() {
   bool get isSettled => pendingPageKeys.isEmpty && pendingLayerIds.isEmpty;
 }
 
+class const _FeatureScopes<R extends SheetRoute, F extends SheetFeature<R>>({
+  required final List<F> features,
+  required final ValueListenable<double?> visualTopExtent,
+  required final ValueListenable<bool> isTransitionActive,
+  required final VoidCallback requestPop,
+  required final Widget child,
+  super.key,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SheetNavigatorScope(
+    visualTopExtent: visualTopExtent,
+    isTransitionActive: isTransitionActive,
+    requestPop: requestPop,
+    child: features.reversed.fold(child, (scoped, feature) => feature.scope(context, scoped)),
+  );
+}
+
 typedef _OverlayLayerSlot = ({Key? key, Widget content, double? bottom});
 
 class const _OrderedOverlayLayers({
@@ -702,25 +682,54 @@ class const _OrderedOverlayLayers({
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: isTransitionActive,
-    builder: (context, isTransitionActive, _) =>
-        AbsorbPointer(absorbing: isTransitionActive, child: _layers(context, isTransitionActive)),
+    builder: (context, isTransitionActive, _) => AbsorbPointer(
+      absorbing: isTransitionActive,
+      child: _OverlayLayerStack(
+        extent: extent,
+        isTransitionActive: isTransitionActive,
+        viewportHeight: viewportHeight,
+        sheetLayer: sheetLayer,
+        layers: layers,
+        settledFallbackExtent: settledFallbackExtent,
+        fullyExpandedExtent: fullyExpandedExtent,
+      ),
+    ),
   );
+}
 
-  Widget _layers(BuildContext context, bool isTransitionActive) => ValueListenableBuilder(
+class const _OverlayLayerStack({
+  required final ValueListenable<double?> extent,
+  required final bool isTransitionActive,
+  required final double viewportHeight,
+  required final Widget sheetLayer,
+  required final List<_OverlayLayerSlot> layers,
+  required final double settledFallbackExtent,
+  required final double fullyExpandedExtent,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: extent,
     builder: (context, extent, _) {
-      final placedLayers = [
+      final coveredFlags = [
         for (final layer in layers)
-          _placeLayer(
-            layer,
-            isCovered: _isLayerCovered(
-              bottom: layer.bottom,
-              extent: extent,
-              viewportHeight: viewportHeight,
-              settledFallbackExtent: settledFallbackExtent,
-              fullyExpandedExtent: fullyExpandedExtent,
+          _isLayerCovered(
+            bottom: layer.bottom,
+            extent: extent,
+            viewportHeight: viewportHeight,
+            settledFallbackExtent: settledFallbackExtent,
+            fullyExpandedExtent: fullyExpandedExtent,
+          ),
+      ];
+      final placedLayers = [
+        for (final (index, layer) in layers.indexed)
+          (
+            isCovered: coveredFlags[index],
+            widget: _PlacedOverlayLayer(
+              key: layer.key,
+              content: layer.content,
+              isCovered: coveredFlags[index],
+              isTransitionActive: isTransitionActive,
             ),
-            isTransitionActive: isTransitionActive,
           ),
       ];
 
@@ -733,27 +742,67 @@ class const _OrderedOverlayLayers({
       );
     },
   );
+}
 
-  ({bool isCovered, Widget widget}) _placeLayer(
-    _OverlayLayerSlot layer, {
-    required bool isCovered,
-    required bool isTransitionActive,
-  }) => (
-    isCovered: isCovered,
-    widget: Positioned.fill(
-      key: layer.key,
-      child: Visibility(
-        visible: !(isTransitionActive && isCovered),
-        maintainState: true,
-        maintainAnimation: true,
-        maintainSize: true,
-        child: ExcludeSemantics(
-          excluding: isCovered,
-          child: IgnorePointer(ignoring: isCovered, child: layer.content),
-        ),
+class const _PlacedOverlayLayer({
+  required final Widget content,
+  required final bool isCovered,
+  required final bool isTransitionActive,
+  super.key,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: Visibility(
+      visible: !(isTransitionActive && isCovered),
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      child: ExcludeSemantics(
+        excluding: isCovered,
+        child: IgnorePointer(ignoring: isCovered, child: content),
       ),
     ),
   );
+}
+
+class const _OverlayLayerContent<R extends SheetRoute, F extends SheetFeature<R>>({
+  required final SheetOverlayLayer<R, F> layer,
+  required final SheetLayerContext<R, F> layerContext,
+  required final int switcherGeneration,
+  required final Duration switchDuration,
+  required final VoidCallback onDispose,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final topRoute = layerContext.topRoute;
+    final switcher = AnimatedSwitcher(
+      key: ValueKey(switcherGeneration),
+      duration: switchDuration,
+      transitionBuilder: (child, animation) =>
+          _SequencedLayerFade(animation: animation, child: child),
+      child: KeyedSubtree(
+        key: ValueKey(topRoute.pageKey),
+        child: _RouteWidgetLifecycle(
+          onDispose: onDispose,
+          child:
+              layerContext.topFeature.layer(context, layer.id, topRoute) ?? const SizedBox.shrink(),
+        ),
+      ),
+    );
+    return switch (layer.persistentBuilder) {
+      final persistentBuilder? => Stack(
+        children: [
+          Positioned.fill(
+            child: Builder(
+              builder: (innerContext) => persistentBuilder(innerContext, layerContext),
+            ),
+          ),
+          Positioned.fill(child: switcher),
+        ],
+      ),
+      null => switcher,
+    };
+  }
 }
 
 bool _isLayerCovered({
