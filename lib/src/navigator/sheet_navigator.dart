@@ -127,9 +127,12 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 
   @override
-  Widget build(BuildContext context) => _wrapInScopes(
-    context,
-    LayoutBuilder(
+  Widget build(BuildContext context) => _FeatureScopes<R, F>(
+    features: _orderedFeatures,
+    visualTopExtent: _visualTopExtent,
+    isTransitionActive: _isTransitionActive,
+    requestPop: _requestPop,
+    child: LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
         final availableWidth = constraints.maxWidth;
@@ -466,7 +469,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     });
   }
 
-  Widget _wrapInScopes(BuildContext context, Widget child) {
+  List<F> get _orderedFeatures {
     final orderedFeatures = <F>[];
     for (final route in _stack) {
       final feature = _featureFor(route);
@@ -476,16 +479,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       if (!orderedFeatures.contains(feature)) orderedFeatures.add(feature);
     }
 
-    final scoped = orderedFeatures.reversed.fold(
-      child,
-      (scoped, feature) => feature.scope(context, scoped),
-    );
-    return SheetNavigatorScope(
-      visualTopExtent: _visualTopExtent,
-      isTransitionActive: _isTransitionActive,
-      requestPop: _requestPop,
-      child: scoped,
-    );
+    return orderedFeatures;
   }
 
   void _publishVisualTopExtent(double? value) {
@@ -633,6 +627,23 @@ class _PendingFeatureExit<R extends SheetRoute>() {
   Timer? fallbackTimer;
 
   bool get isSettled => pendingPageKeys.isEmpty && pendingLayerIds.isEmpty;
+}
+
+class const _FeatureScopes<R extends SheetRoute, F extends SheetFeature<R>>({
+  required final List<F> features,
+  required final ValueListenable<double?> visualTopExtent,
+  required final ValueListenable<bool> isTransitionActive,
+  required final VoidCallback requestPop,
+  required final Widget child,
+  super.key,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SheetNavigatorScope(
+    visualTopExtent: visualTopExtent,
+    isTransitionActive: isTransitionActive,
+    requestPop: requestPop,
+    child: features.reversed.fold(child, (scoped, feature) => feature.scope(context, scoped)),
+  );
 }
 
 typedef _OverlayLayerSlot = ({Key? key, Widget content, double? bottom});
