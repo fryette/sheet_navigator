@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:sheet_navigator/src/page/sheet_page.dart';
+import 'package:sheet_navigator/src/viewport/sheet_resting_viewport.dart';
 
 typedef SheetSettledSnap = ({Object pageKey, double extent});
 
@@ -14,4 +15,6 @@ class const SheetViewportState({
   required final double availableWidth,
   required final double availableHeight,
   required final SheetSettledSnap? settledSnap,
-});
+}) {
+  double? get restingExtent => SheetRestingViewport.restingExtentFor(topPage, settledSnap);
+}
