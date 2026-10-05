@@ -280,12 +280,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final MapEntry(key: feature, value: featureRemovedRoutes)
         in removedRoutesByFeature.entries) {
       final isStillLiveElsewhere = stack.any((route) => _featureFor(route) == feature);
-      if (isStillLiveElsewhere) continue;
-
       final pending = _pendingFeatureExits.putIfAbsent(feature, _PendingFeatureExit<R>.new);
       pending.pendingPageKeys.addAll(featureRemovedRoutes.map((route) => route.pageKey));
       pending.removedRoutes.addAll(featureRemovedRoutes);
-      if (isOldTopRemoved && _featureFor(oldTopRoute) == feature) {
+      if (!isStillLiveElsewhere && isOldTopRemoved && _featureFor(oldTopRoute) == feature) {
         pending.pendingLayerIds.addAll(widget.layers.map((layer) => layer.id));
       }
       _scheduleExitFallback(feature, pending);

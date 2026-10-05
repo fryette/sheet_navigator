@@ -95,7 +95,7 @@ class _TestFeature({
 class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
   final exited = <SheetRoute>[];
 
-  new() : super(root: const _RootRoute());
+  new({SheetRoute root = const _RootRoute()}) : super(root: root);
 
   @override
   void notifyRouteExited(SheetRoute route) {
@@ -244,22 +244,21 @@ void main() {
   }
 
   group('declarative stack', () {
-    testWidgets(
-      'a route popped while its feature still owns a lower route is not reported exited',
-      (tester) async {
-        final hostKey = await pumpHost(tester);
-        hostKey.currentState?.push(const _ListRoute());
-        await tester.pumpAndSettle();
-        hostKey.currentState?.push(const _DetailsRoute());
-        await tester.pumpAndSettle();
+    testWidgets('a route popped while its feature still owns a lower route is reported exited', (
+      tester,
+    ) async {
+      final hostKey = await pumpHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      hostKey.currentState?.push(const _DetailsRoute());
+      await tester.pumpAndSettle();
 
-        hostKey.currentState?.pop();
-        await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
 
-        expect(_pageOf(const _DetailsRoute()), findsNothing);
-        expect(exited, isEmpty);
-      },
-    );
+      expect(_pageOf(const _DetailsRoute()), findsNothing);
+      expect(exited, [const _DetailsRoute()]);
+    });
 
     testWidgets('a push mounts the new page on top and keeps the covered page mounted', (
       tester,
@@ -1108,6 +1107,67 @@ void main() {
 
       expect(controller.depth, 1);
       expect(_pageOf(const _ListRoute()), findsNothing);
+      expect(returnedToRoot, hasLength(1));
+    });
+
+    testWidgets('returns to the root when the popped route shares a feature with the root', (
+      tester,
+    ) async {
+      final controller = SheetNavigatorController<SheetRoute>(root: const _KeyedRoute('a'));
+      addTearDown(controller.dispose);
+      final returnedToRoot = <void>[];
+      final subscription = controller.returnedToRoot.listen(returnedToRoot.add);
+      addTearDown(subscription.cancel);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>.controlled(
+            controller: controller,
+            features: [_TestFeature(matcher: (_) => true, log: log)],
+            style: _style,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.push(const _KeyedRoute('b'));
+      await tester.pumpAndSettle();
+
+      controller.pop();
+      await tester.pumpAndSettle();
+
+      expect(returnedToRoot, hasLength(1));
+    });
+
+    testWidgets('returns to the root after popToRoot over routes sharing a feature', (
+      tester,
+    ) async {
+      final controller = _ExitSpyController(root: const _KeyedRoute('a'));
+      addTearDown(controller.dispose);
+      final returnedToRoot = <void>[];
+      final subscription = controller.returnedToRoot.listen(returnedToRoot.add);
+      addTearDown(subscription.cancel);
+      final shared = _TestFeature(matcher: (route) => route.pageKey != 'b', log: log);
+      final other = _TestFeature(matcher: (route) => route.pageKey == 'b', log: log);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SheetNavigator<SheetRoute, _TestFeature>.controlled(
+            controller: controller,
+            features: [shared, other],
+            style: _style,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller
+        ..push(const _KeyedRoute('b'))
+        ..push(const _KeyedRoute('c'));
+      await tester.pumpAndSettle();
+
+      controller.popToRoot();
+      await tester.pumpAndSettle();
+
+      expect(controller.exited.map((route) => route.pageKey), unorderedEquals(['b', 'c']));
       expect(returnedToRoot, hasLength(1));
     });
 
