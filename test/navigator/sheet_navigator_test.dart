@@ -131,6 +131,40 @@ class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
   }
 }
 
+class const _LateCallbackHost({
+  required final List<_TestFeature> features,
+  required final ValueChanged<bool> onValue,
+  required final VoidCallback onBuild,
+  super.key,
+}) extends StatefulWidget {
+  @override
+  State<_LateCallbackHost> createState() => _LateCallbackHostState();
+}
+
+class _LateCallbackHostState() extends State<_LateCallbackHost> {
+  bool isAttached = false;
+
+  @override
+  Widget build(BuildContext context) {
+    widget.onBuild();
+    return SheetNavigator<SheetRoute, _TestFeature>(
+      features: widget.features,
+      stack: const [_RootRoute()],
+      style: _style,
+      onTopFullyExpandedChanged: isAttached
+          ? (value) {
+              widget.onValue(value);
+              setState(() {});
+            }
+          : null,
+    );
+  }
+
+  void attach() => setState(() => isAttached = true);
+
+  void detach() => setState(() => isAttached = false);
+}
+
 class const _RemovableNavigatorHost({required final List<_TestFeature> features, super.key})
     extends StatefulWidget {
   @override
@@ -647,6 +681,42 @@ void main() {
       }
 
       expect(builds, lessThan(5));
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+  });
+
+  group('attaching onTopFullyExpandedChanged', () {
+    testWidgets('a callback attached after an earlier one was removed receives the current value', (
+      tester,
+    ) async {
+      final values = <bool>[];
+      var builds = 0;
+      final hostKey = GlobalKey<_LateCallbackHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _LateCallbackHost(
+            key: hostKey,
+            features: [rootFeature(), tripFeature()],
+            onValue: values.add,
+            onBuild: () => builds++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      hostKey.currentState?.attach();
+      await tester.pumpAndSettle();
+      expect(values, [false]);
+      hostKey.currentState?.detach();
+      await tester.pumpAndSettle();
+      builds = 0;
+
+      hostKey.currentState?.attach();
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(values, [false, false]);
+      expect(builds, lessThan(6));
       expect(tester.binding.hasScheduledFrame, isFalse);
     });
   });

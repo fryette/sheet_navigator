@@ -237,6 +237,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   @override
   void didUpdateWidget(covariant SheetNavigator<R, F> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onTopFullyExpandedChanged == null && widget.onTopFullyExpandedChanged != null) {
+      _lastPublishedTopFullyExpanded = null;
+    }
     if (widget.controller != oldWidget.controller) {
       _controllerSubscription?.cancel();
       _subscribeToController();
