@@ -78,9 +78,6 @@ const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
 const _sequencedLayerOutgoingOpacityCurve = Interval(1 - _sequencedLayerCrossoverPoint, 1);
 
-Widget _sequencedLayerTransitionBuilder(Widget child, Animation<double> animation) =>
-    _SequencedLayerFade(animation: animation, child: child);
-
 class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     extends State<SheetNavigator<R, F>> {
   final _controllers = <Object, SheetController>{};
@@ -213,7 +210,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
             for (final layer in widget.layers)
               (
                 key: layer.key,
-                content: _layerContent(context, layer, layerContext),
+                content: _OverlayLayerContent<R, F>(
+                  layer: layer,
+                  layerContext: layerContext,
+                  switcherGeneration: _layerSwitcherGenerations[layer.id] ?? 0,
+                  switchDuration: _layerSwitchDuration,
+                  onDispose: () => _handleLayerSubtreeDisposed(topFeature, layer.id),
+                ),
                 bottom: topFeature.layerBottom(context, layer.id, topRoute),
               ),
           ],
@@ -343,40 +346,6 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       viewportHeight: availableHeight,
     );
     _layerSwitchDuration = widget.transitions.resolve(transition).layerSwitchDuration(transition);
-  }
-
-  Widget _layerContent(
-    BuildContext context,
-    SheetOverlayLayer<R, F> layer,
-    SheetLayerContext<R, F> layerContext,
-  ) {
-    final topRoute = layerContext.topRoute;
-    final topFeature = layerContext.topFeature;
-    final switcher = AnimatedSwitcher(
-      key: ValueKey(_layerSwitcherGenerations[layer.id] ?? 0),
-      duration: _layerSwitchDuration,
-      transitionBuilder: _sequencedLayerTransitionBuilder,
-      child: KeyedSubtree(
-        key: ValueKey(topRoute.pageKey),
-        child: _RouteWidgetLifecycle(
-          onDispose: () => _handleLayerSubtreeDisposed(topFeature, layer.id),
-          child: topFeature.layer(context, layer.id, topRoute) ?? const SizedBox.shrink(),
-        ),
-      ),
-    );
-    return switch (layer.persistentBuilder) {
-      final persistentBuilder? => Stack(
-        children: [
-          Positioned.fill(
-            child: Builder(
-              builder: (innerContext) => persistentBuilder(innerContext, layerContext),
-            ),
-          ),
-          Positioned.fill(child: switcher),
-        ],
-      ),
-      null => switcher,
-    };
   }
 
   F _featureFor(R route) => widget.features.firstWhere((feature) => feature.handles(route));
@@ -661,25 +630,54 @@ class const _OrderedOverlayLayers({
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: isTransitionActive,
-    builder: (context, isTransitionActive, _) =>
-        AbsorbPointer(absorbing: isTransitionActive, child: _layers(context, isTransitionActive)),
+    builder: (context, isTransitionActive, _) => AbsorbPointer(
+      absorbing: isTransitionActive,
+      child: _OverlayLayerStack(
+        extent: extent,
+        isTransitionActive: isTransitionActive,
+        viewportHeight: viewportHeight,
+        sheetLayer: sheetLayer,
+        layers: layers,
+        settledFallbackExtent: settledFallbackExtent,
+        fullyExpandedExtent: fullyExpandedExtent,
+      ),
+    ),
   );
+}
 
-  Widget _layers(BuildContext context, bool isTransitionActive) => ValueListenableBuilder(
+class const _OverlayLayerStack({
+  required final ValueListenable<double?> extent,
+  required final bool isTransitionActive,
+  required final double viewportHeight,
+  required final Widget sheetLayer,
+  required final List<_OverlayLayerSlot> layers,
+  required final double settledFallbackExtent,
+  required final double fullyExpandedExtent,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: extent,
     builder: (context, extent, _) {
-      final placedLayers = [
+      final coveredFlags = [
         for (final layer in layers)
-          _placeLayer(
-            layer,
-            isCovered: _isLayerCovered(
-              bottom: layer.bottom,
-              extent: extent,
-              viewportHeight: viewportHeight,
-              settledFallbackExtent: settledFallbackExtent,
-              fullyExpandedExtent: fullyExpandedExtent,
+          _isLayerCovered(
+            bottom: layer.bottom,
+            extent: extent,
+            viewportHeight: viewportHeight,
+            settledFallbackExtent: settledFallbackExtent,
+            fullyExpandedExtent: fullyExpandedExtent,
+          ),
+      ];
+      final placedLayers = [
+        for (final (index, layer) in layers.indexed)
+          (
+            isCovered: coveredFlags[index],
+            widget: _PlacedOverlayLayer(
+              key: layer.key,
+              content: layer.content,
+              isCovered: coveredFlags[index],
+              isTransitionActive: isTransitionActive,
             ),
-            isTransitionActive: isTransitionActive,
           ),
       ];
 
@@ -692,27 +690,67 @@ class const _OrderedOverlayLayers({
       );
     },
   );
+}
 
-  ({bool isCovered, Widget widget}) _placeLayer(
-    _OverlayLayerSlot layer, {
-    required bool isCovered,
-    required bool isTransitionActive,
-  }) => (
-    isCovered: isCovered,
-    widget: Positioned.fill(
-      key: layer.key,
-      child: Visibility(
-        visible: !(isTransitionActive && isCovered),
-        maintainState: true,
-        maintainAnimation: true,
-        maintainSize: true,
-        child: ExcludeSemantics(
-          excluding: isCovered,
-          child: IgnorePointer(ignoring: isCovered, child: layer.content),
-        ),
+class const _PlacedOverlayLayer({
+  required final Widget content,
+  required final bool isCovered,
+  required final bool isTransitionActive,
+  super.key,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: Visibility(
+      visible: !(isTransitionActive && isCovered),
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      child: ExcludeSemantics(
+        excluding: isCovered,
+        child: IgnorePointer(ignoring: isCovered, child: content),
       ),
     ),
   );
+}
+
+class const _OverlayLayerContent<R extends SheetRoute, F extends SheetFeature<R>>({
+  required final SheetOverlayLayer<R, F> layer,
+  required final SheetLayerContext<R, F> layerContext,
+  required final int switcherGeneration,
+  required final Duration switchDuration,
+  required final VoidCallback onDispose,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final topRoute = layerContext.topRoute;
+    final switcher = AnimatedSwitcher(
+      key: ValueKey(switcherGeneration),
+      duration: switchDuration,
+      transitionBuilder: (child, animation) =>
+          _SequencedLayerFade(animation: animation, child: child),
+      child: KeyedSubtree(
+        key: ValueKey(topRoute.pageKey),
+        child: _RouteWidgetLifecycle(
+          onDispose: onDispose,
+          child:
+              layerContext.topFeature.layer(context, layer.id, topRoute) ?? const SizedBox.shrink(),
+        ),
+      ),
+    );
+    return switch (layer.persistentBuilder) {
+      final persistentBuilder? => Stack(
+        children: [
+          Positioned.fill(
+            child: Builder(
+              builder: (innerContext) => persistentBuilder(innerContext, layerContext),
+            ),
+          ),
+          Positioned.fill(child: switcher),
+        ],
+      ),
+      null => switcher,
+    };
+  }
 }
 
 bool _isLayerCovered({
