@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sheet_navigator/src/stack/sheet_bottom_bleed.dart';
+import 'package:sheet_navigator/src/stack/sheet_scrolled_content_drag_gate.dart';
 import 'package:sheet_navigator/src/stack/sheet_visible_content.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
@@ -18,8 +19,9 @@ class const SheetPageContent({
   Widget build(BuildContext context) {
     final isBounded = viewportHeight.isFinite && viewportHeight > 0;
 
-    final scrollSlot = Builder(
-      builder: (context) => builder(context, PrimaryScrollController.of(context)),
+    final scrollSlot = SheetScrolledContentDragGate(
+      controller: controller,
+      child: Builder(builder: (context) => builder(context, PrimaryScrollController.of(context))),
     );
 
     final content = Column(
