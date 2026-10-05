@@ -127,80 +127,80 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final availableHeight = constraints.maxHeight;
-      final availableWidth = constraints.maxWidth;
-      final entries = <SheetStackEntry>[];
-      for (final route in _stack) {
-        _routesByPageKey[route.pageKey] = route;
-        final isNewPage = !_controllers.containsKey(route.pageKey);
-        final controller = _controllerFor(route.pageKey);
-        final page = _featureFor(route).page(context, route, availableHeight, controller);
-        if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
-        _pagesByPageKey[route.pageKey] = page;
-        entries.add(SheetStackEntry(route: route, page: page, controller: controller));
-      }
-      final [..., topRoute] = _stack;
-      final topFeature = _featureFor(topRoute);
-      final [..., SheetStackEntry(page: topPage)] = entries;
-      _resolveLayerSwitchDuration(topRoute, topPage, availableHeight);
-      final settledFallbackExtent = topPage.initialSize;
-      final topPageExpandedExtent = topPage.snapSizes.isEmpty
-          ? 1.0
-          : topPage.snapSizes.reduce(math.max);
-      _topPageExpandedExtent = topPageExpandedExtent;
-      _topPageKey = topRoute.pageKey;
-      _topPageInitialSize = topPage.initialSize;
-      _topPageSnapSizes = topPage.snapSizes;
-      _publishTopSheetFullyExpanded(
-        _isTopSheetFullyExpanded(_settledTopPageExtent, topPageExpandedExtent),
-      );
+  Widget build(BuildContext context) => _wrapInScopes(
+    context,
+    LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight;
+        final availableWidth = constraints.maxWidth;
+        final entries = <SheetStackEntry>[];
+        for (final route in _stack) {
+          _routesByPageKey[route.pageKey] = route;
+          final isNewPage = !_controllers.containsKey(route.pageKey);
+          final controller = _controllerFor(route.pageKey);
+          final page = _featureFor(route).page(context, route, availableHeight, controller);
+          if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
+          _pagesByPageKey[route.pageKey] = page;
+          entries.add(SheetStackEntry(route: route, page: page, controller: controller));
+        }
+        final [..., topRoute] = _stack;
+        final topFeature = _featureFor(topRoute);
+        final [..., SheetStackEntry(page: topPage)] = entries;
+        _resolveLayerSwitchDuration(topRoute, topPage, availableHeight);
+        final settledFallbackExtent = topPage.initialSize;
+        final topPageExpandedExtent = topPage.snapSizes.isEmpty
+            ? 1.0
+            : topPage.snapSizes.reduce(math.max);
+        _topPageExpandedExtent = topPageExpandedExtent;
+        _topPageKey = topRoute.pageKey;
+        _topPageInitialSize = topPage.initialSize;
+        _topPageSnapSizes = topPage.snapSizes;
+        _publishTopSheetFullyExpanded(
+          _isTopSheetFullyExpanded(_settledTopPageExtent, topPageExpandedExtent),
+        );
 
-      final sheetLayerChild = _SheetLayer<R, F>(
-        topRouteKey: topRoute.pageKey,
-        topFeature: topFeature,
-        topRoute: topRoute,
-        availableHeight: availableHeight,
-        entries: entries,
-        style: widget.style,
-        transitions: widget.transitions,
-        onExitCompleted: _handleSheetExitCompleted,
-        onVisualTopExtentChanged: _publishVisualTopExtent,
-        onTransitionActiveChanged: _publishTransitionActive,
-        onSettledFitReady: (fit) => _currentSettledFit = fit,
-        onSheetDraggingChanged: _handleSheetDraggingChanged,
-        onSheetContentScrollingChanged: _handleSheetContentScrollingChanged,
-      );
-      final sheetLayer = ValueListenableBuilder(
-        key: widget.sheetLayerKey,
-        valueListenable: _settledSnap,
-        builder: (context, settledSnap, _) => switch (widget.sheetLayerWrapper) {
-          final wrapper? => wrapper(
-            context,
-            SheetViewportState(
-              topPage: topPage,
-              availableWidth: availableWidth,
-              availableHeight: availableHeight,
-              settledSnap: settledSnap,
+        final sheetLayerChild = _SheetLayer<R, F>(
+          topRouteKey: topRoute.pageKey,
+          topFeature: topFeature,
+          topRoute: topRoute,
+          availableHeight: availableHeight,
+          entries: entries,
+          style: widget.style,
+          transitions: widget.transitions,
+          onExitCompleted: _handleSheetExitCompleted,
+          onVisualTopExtentChanged: _publishVisualTopExtent,
+          onTransitionActiveChanged: _publishTransitionActive,
+          onSettledFitReady: (fit) => _currentSettledFit = fit,
+          onSheetDraggingChanged: _handleSheetDraggingChanged,
+          onSheetContentScrollingChanged: _handleSheetContentScrollingChanged,
+        );
+        final sheetLayer = ValueListenableBuilder(
+          key: widget.sheetLayerKey,
+          valueListenable: _settledSnap,
+          builder: (context, settledSnap, _) => switch (widget.sheetLayerWrapper) {
+            final wrapper? => wrapper(
+              context,
+              SheetViewportState(
+                topPage: topPage,
+                availableWidth: availableWidth,
+                availableHeight: availableHeight,
+                settledSnap: settledSnap,
+              ),
+              sheetLayerChild,
             ),
-            sheetLayerChild,
-          ),
-          null => sheetLayerChild,
-        },
-      );
-      final layerContext = SheetLayerContext<R, F>(
-        topRoute: topRoute,
-        topFeature: topFeature,
-        topPage: topPage,
-        visualTopExtent: _visualTopExtent,
-        availableWidth: availableWidth,
-        availableHeight: availableHeight,
-      );
+            null => sheetLayerChild,
+          },
+        );
+        final layerContext = SheetLayerContext<R, F>(
+          topRoute: topRoute,
+          topFeature: topFeature,
+          topPage: topPage,
+          visualTopExtent: _visualTopExtent,
+          availableWidth: availableWidth,
+          availableHeight: availableHeight,
+        );
 
-      return _wrapInScopes(
-        context,
-        _OrderedOverlayLayers(
+        return _OrderedOverlayLayers(
           key: _overlayContentKey,
           extent: _visualTopExtent,
           isTransitionActive: _isTransitionActive,
@@ -216,9 +216,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           ],
           settledFallbackExtent: settledFallbackExtent,
           fullyExpandedExtent: topPageExpandedExtent,
-        ),
-      );
-    },
+        );
+      },
+    ),
   );
 
   @override
