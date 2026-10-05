@@ -11,7 +11,9 @@ final class const _ListRoute() extends SheetRoute;
 
 final class const _DetailsRoute() extends SheetRoute;
 
-final class _PayloadRoute(final int payload) extends SheetRoute;
+final class const _PayloadRoute(final int payload) extends SheetRoute;
+
+SheetRoute _payloadRoute(int payload) => _PayloadRoute(payload);
 
 Widget _surface(BuildContext context, Widget card) =>
     ColoredBox(key: _surfaceKey, color: const Color(0xFFFFFFFF), child: card);
@@ -34,7 +36,14 @@ class _Feature({
   final double initialSize = 0.5,
   final List<double> snapSizes = const [0.2, 0.5, 0.9],
   final double? layerBottomValue,
+  final String? scopeName,
 }) with SheetFeature<SheetRoute> {
+  @override
+  Widget scope(BuildContext context, Widget child) => switch (scopeName) {
+    final name? => KeyedSubtree(key: ValueKey('scope_$name'), child: child),
+    null => child,
+  };
+
   @override
   bool handles(SheetRoute route) => matcher(route);
 
@@ -244,11 +253,41 @@ void main() {
     });
   });
 
+  group('features of the same type', () {
+    testWidgets('an exiting route keeps its own feature scope while a sibling feature stays live', (
+      tester,
+    ) async {
+      final controller = _controller();
+      final features = [
+        _Feature(matcher: (route) => route is _RootRoute, scopeName: 'root'),
+        _Feature(matcher: (route) => route is _ListRoute, scopeName: 'list'),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ControllerHost(controller: controller, layers: const [], features: features),
+        ),
+      );
+      controller.push(const _ListRoute());
+      await tester.pumpAndSettle();
+
+      controller.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const ValueKey('scope_list')), findsOneWidget);
+      expect(find.byKey(const ValueKey('scope_root')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('scope_list')), findsNothing);
+    });
+  });
+
   group('in-place updates', () {
     testWidgets('replacing the top with the same page key during a drag keeps the interaction', (
       tester,
     ) async {
-      final controller = SheetNavigatorController<SheetRoute>(root: _PayloadRoute(0));
+      final controller = SheetNavigatorController<SheetRoute>(root: _payloadRoute(0));
       addTearDown(controller.dispose);
       final signals = <bool>[];
       final viewportHeight = tester.view.physicalSize.height / tester.view.devicePixelRatio;
@@ -270,7 +309,7 @@ void main() {
       await tester.pump();
       expect(signals, [true]);
 
-      controller.replaceTop(_PayloadRoute(1));
+      controller.replaceTop(_payloadRoute(1));
       await tester.pump();
 
       expect(signals, [true]);
