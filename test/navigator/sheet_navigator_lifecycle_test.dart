@@ -11,6 +11,8 @@ final class const _ListRoute() extends SheetRoute;
 
 final class const _DetailsRoute() extends SheetRoute;
 
+final class _PayloadRoute(final int payload) extends SheetRoute;
+
 Widget _surface(BuildContext context, Widget card) =>
     ColoredBox(key: _surfaceKey, color: const Color(0xFFFFFFFF), child: card);
 
@@ -239,6 +241,43 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
       expect(signals.last, isFalse);
+    });
+  });
+
+  group('in-place updates', () {
+    testWidgets('replacing the top with the same page key during a drag keeps the interaction', (
+      tester,
+    ) async {
+      final controller = SheetNavigatorController<SheetRoute>(root: _PayloadRoute(0));
+      addTearDown(controller.dispose);
+      final signals = <bool>[];
+      final viewportHeight = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _ControllerHost(
+            controller: controller,
+            layers: const [],
+            features: [_Feature(matcher: (route) => route is _PayloadRoute)],
+            onSheetInteractingChanged: signals.add,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final gesture = await tester.startGesture(Offset(400, viewportHeight - 10));
+      await gesture.moveBy(const Offset(0, -80));
+      await tester.pump();
+      expect(signals, [true]);
+
+      controller.replaceTop(_PayloadRoute(1));
+      await tester.pump();
+
+      expect(signals, [true]);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(signals, [true, false]);
     });
   });
 

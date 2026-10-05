@@ -272,7 +272,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     assert(stack.isNotEmpty, _emptyStackMessage);
     assert(_hasUniquePageKeys(stack), _duplicatePageKeysMessage);
-    _resetSheetInteracting();
+    if (!_hasSamePageKeys(oldStack, stack)) _resetSheetInteracting();
     _stackBeforeLayerSwitch ??= oldStack;
     _dropLiveRoutesFromPendingExits(stack);
 
@@ -652,6 +652,10 @@ const _duplicatePageKeysMessage = 'Every route in a SheetNavigator stack needs a
 
 bool _hasUniquePageKeys(List<SheetRoute> stack) =>
     stack.map((route) => route.pageKey).toSet().length == stack.length;
+
+bool _hasSamePageKeys(List<SheetRoute> first, List<SheetRoute> second) =>
+    first.length == second.length &&
+    first.indexed.every((entry) => entry.$2.pageKey == second[entry.$1].pageKey);
 
 bool _isTopSheetFullyExpanded(double? extent, double expandedExtent) =>
     extent != null && extent >= expandedExtent - _fullyExpandedExtentTolerance;
