@@ -92,6 +92,12 @@ class _TestFeature({
   }
 }
 
+class _ScopedTripFeature({required super.matcher, required super.log}) extends _TestFeature {
+  @override
+  Widget scope(BuildContext context, Widget child) =>
+      KeyedSubtree(key: const ValueKey('trip_scope'), child: child);
+}
+
 class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
   final exited = <SheetRoute>[];
 
@@ -494,6 +500,64 @@ void main() {
       await pumpHost(tester, onTopFullyExpandedChanged: signals.add);
 
       expect(signals.lastOrNull, isFalse);
+    });
+  });
+
+  group('feature identity', () {
+    testWidgets('a features list rebuilt on every build still reports exits at the normal time', (
+      tester,
+    ) async {
+      var stack = const <SheetRoute>[_RootRoute()];
+      late StateSetter setStack;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              setStack = setState;
+              return SheetNavigator<SheetRoute, _TestFeature>(
+                features: [rootFeature(), tripFeature()],
+                stack: stack,
+                style: _style,
+                layers: const [SheetOverlayLayer(id: 'chrome')],
+                onRouteExited: exited.add,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      setStack(() => stack = const [_RootRoute(), _ListRoute()]);
+      await tester.pumpAndSettle();
+
+      setStack(() => stack = const [_RootRoute()]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 450));
+
+      expect(exited, [const _ListRoute()]);
+    });
+  });
+
+  group('feature scope', () {
+    testWidgets('a feature scope stays mounted until its routes have exited', (tester) async {
+      final hostKey = await pumpHost(
+        tester,
+        features: [
+          rootFeature(),
+          _ScopedTripFeature(matcher: (route) => route is _ListRoute, log: log),
+        ],
+      );
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+
+      hostKey.currentState?.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const ValueKey('trip_scope')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('trip_scope')), findsNothing);
     });
   });
 

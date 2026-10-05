@@ -89,7 +89,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   final _visualTopExtent = ValueNotifier<double?>(null);
   final _isTransitionActive = ValueNotifier<bool>(false);
   final _overlayContentKey = GlobalKey();
-  final _pendingFeatureExits = <F, _PendingFeatureExit<R>>{};
+  final _pendingFeatureExits = <Type, _PendingFeatureExit<R, F>>{};
   final _layerSwitcherGenerations = <Object, int>{};
   final _settledSnap = ValueNotifier<SheetSettledSnap?>(null);
   List<R> _stack = const [];
@@ -283,7 +283,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final MapEntry(key: feature, value: featureRemovedRoutes)
         in removedRoutesByFeature.entries) {
       final isStillLiveElsewhere = stack.any((route) => _featureFor(route) == feature);
-      final pending = _pendingFeatureExits.putIfAbsent(feature, _PendingFeatureExit<R>.new);
+      final pending = _pendingFeatureExits.putIfAbsent(
+        feature.runtimeType,
+        () => _PendingFeatureExit<R, F>(feature),
+      );
       pending.pendingPageKeys.addAll(featureRemovedRoutes.map((route) => route.pageKey));
       pending.removedRoutes.addAll(featureRemovedRoutes);
       if (!isStillLiveElsewhere && isOldTopRemoved && _featureFor(oldTopRoute) == feature) {
@@ -295,7 +298,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   void _dropLiveRoutesFromPendingExits(List<R> stack) {
     final livePageKeys = {for (final route in stack) route.pageKey};
-    for (final MapEntry<F, _PendingFeatureExit<R>>(key: feature, value: pending) in [
+    for (final MapEntry<Type, _PendingFeatureExit<R, F>>(key: featureType, value: pending) in [
       ..._pendingFeatureExits.entries,
     ]) {
       pending.pendingPageKeys.removeWhere(livePageKeys.contains);
@@ -304,7 +307,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
       pending.fallbackTimer?.cancel();
       pending.pendingLayerIds.clear();
-      _pendingFeatureExits.remove(feature);
+      _pendingFeatureExits.remove(featureType);
     }
   }
 
@@ -397,9 +400,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (route == null) return;
 
     final feature = _featureFor(route);
-    _pendingFeatureExits[feature]?.pendingPageKeys.remove(pageKey);
+    _pendingFeatureExits[feature.runtimeType]?.pendingPageKeys.remove(pageKey);
     if (isLive) {
-      if (_pendingFeatureExits[feature] case final pending?) {
+      if (_pendingFeatureExits[feature.runtimeType] case final pending?) {
         pending.removedRoutes.removeWhere((removed) => removed.pageKey == pageKey);
         _tryCompleteExit(feature, pending);
       }
@@ -409,17 +412,19 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
-    if (_pendingFeatureExits[feature] case final pending?) _tryCompleteExit(feature, pending);
+    if (_pendingFeatureExits[feature.runtimeType] case final pending?) {
+      _tryCompleteExit(feature, pending);
+    }
   }
 
   void _handleLayerSubtreeDisposed(F feature, Object layerId) {
-    final pending = _pendingFeatureExits[feature];
+    final pending = _pendingFeatureExits[feature.runtimeType];
     if (pending == null || !pending.pendingLayerIds.remove(layerId)) return;
 
     _tryCompleteExit(feature, pending);
   }
 
-  void _tryCompleteExit(F feature, _PendingFeatureExit<R> pending) {
+  void _tryCompleteExit(F feature, _PendingFeatureExit<R, F> pending) {
     if (!pending.isSettled) return;
 
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
@@ -431,13 +436,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   void _applyExitCompleted(
     F feature,
-    _PendingFeatureExit<R> pending, {
+    _PendingFeatureExit<R, F> pending, {
     Set<Object> resetLayerIds = const {},
   }) {
-    if (!mounted || _pendingFeatureExits[feature] != pending) return;
+    if (!mounted || _pendingFeatureExits[feature.runtimeType] != pending) return;
     pending.fallbackTimer?.cancel();
     setState(() {
-      _pendingFeatureExits.remove(feature);
+      _pendingFeatureExits.remove(feature.runtimeType);
       for (final layerId in resetLayerIds) {
         _layerSwitcherGenerations[layerId] = (_layerSwitcherGenerations[layerId] ?? 0) + 1;
       }
@@ -455,11 +460,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
   }
 
-  void _scheduleExitFallback(F feature, _PendingFeatureExit<R> pending) {
+  void _scheduleExitFallback(F feature, _PendingFeatureExit<R, F> pending) {
     pending.fallbackTimer?.cancel();
     final fallbackDelay = widget.exitFallbackTimeout * timeDilation;
     pending.fallbackTimer = Timer(fallbackDelay, () {
-      if (!mounted || _pendingFeatureExits[feature] != pending) return;
+      if (!mounted || _pendingFeatureExits[feature.runtimeType] != pending) return;
 
       final resetLayerIds = {...pending.pendingLayerIds};
       pending.pendingPageKeys.clear();
@@ -474,8 +479,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       final feature = _featureFor(route);
       if (!orderedFeatures.contains(feature)) orderedFeatures.add(feature);
     }
-    for (final feature in _pendingFeatureExits.keys) {
-      if (!orderedFeatures.contains(feature)) orderedFeatures.add(feature);
+    for (final MapEntry(key: featureType, value: pending) in _pendingFeatureExits.entries) {
+      if (orderedFeatures.every((feature) => feature.runtimeType != featureType)) {
+        orderedFeatures.add(pending.feature);
+      }
     }
 
     final scoped = orderedFeatures.reversed.fold(
@@ -639,7 +646,7 @@ bool _hasUniquePageKeys(List<SheetRoute> stack) =>
 bool _isTopSheetFullyExpanded(double? extent, double expandedExtent) =>
     extent != null && extent >= expandedExtent - _fullyExpandedExtentTolerance;
 
-class _PendingFeatureExit<R extends SheetRoute>() {
+class _PendingFeatureExit<R extends SheetRoute, F extends SheetFeature<R>>(final F feature) {
   final Set<Object> pendingPageKeys = {};
   final Set<R> removedRoutes = {};
   final Set<Object> pendingLayerIds = {};
