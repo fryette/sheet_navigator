@@ -164,6 +164,25 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('publishes the render padding once a listener is attached later', (tester) async {
+      final paddings = <EdgeInsets>[];
+
+      Widget host({ValueChanged<EdgeInsets>? onRenderPaddingChanged}) => _InsetsHost(
+        availableHeight: _height,
+        pinnedExtent: 0.25,
+        topInset: 0,
+        onInsetsChanged: (_) {},
+        onRenderPaddingChanged: onRenderPaddingChanged,
+      );
+
+      await tester.pumpWidget(host());
+      await tester.pump();
+      await tester.pumpWidget(host(onRenderPaddingChanged: paddings.add));
+      await tester.pump();
+
+      expect(paddings, [const EdgeInsets.only(top: SheetViewportInsets.gap, bottom: 212)]);
+    });
+
     testWidgets('republishes when any input changes', (tester) async {
       final values = <SheetViewportInsetsValue>[];
       final paddings = <EdgeInsets>[];
