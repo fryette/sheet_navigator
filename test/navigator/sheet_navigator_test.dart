@@ -95,7 +95,7 @@ class _TestFeature({
 class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
   final exited = <SheetRoute>[];
 
-  new({SheetRoute root = const _RootRoute()}) : super(root: root);
+  new({super.root = const _RootRoute()});
 
   @override
   void notifyRouteExited(SheetRoute route) {
@@ -107,17 +107,12 @@ class _ExitSpyController extends SheetNavigatorController<SheetRoute> {
 class const _ParentSetStateHost({
   required final List<_TestFeature> features,
   required final VoidCallback onBuild,
-  final bool rebuildOnTopFullyExpanded = false,
-  final bool rebuildOnSheetInteracting = false,
-  super.key,
 }) extends StatefulWidget {
   @override
   State<_ParentSetStateHost> createState() => _ParentSetStateHostState();
 }
 
 class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
-  var _signal = false;
-
   @override
   Widget build(BuildContext context) {
     widget.onBuild();
@@ -125,12 +120,7 @@ class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
       features: widget.features,
       stack: const [_RootRoute()],
       style: _style,
-      onTopFullyExpandedChanged: widget.rebuildOnTopFullyExpanded
-          ? (value) => setState(() => _signal = value)
-          : null,
-      onSheetInteractingChanged: widget.rebuildOnSheetInteracting
-          ? (value) => setState(() => _signal = value)
-          : null,
+      onTopFullyExpandedChanged: (_) => setState(() {}),
     );
   }
 }
@@ -142,8 +132,8 @@ class const _RemovableNavigatorHost({required final List<_TestFeature> features,
 }
 
 class _RemovableNavigatorHostState() extends State<_RemovableNavigatorHost> {
-  var isNavigatorVisible = true;
-  var isInteracting = false;
+  bool isNavigatorVisible = true;
+  bool isInteracting = false;
 
   @override
   Widget build(BuildContext context) => isNavigatorVisible
@@ -549,7 +539,6 @@ void main() {
           home: _ParentSetStateHost(
             features: [rootFeature(), tripFeature()],
             onBuild: () => builds++,
-            rebuildOnTopFullyExpanded: true,
           ),
         ),
       );

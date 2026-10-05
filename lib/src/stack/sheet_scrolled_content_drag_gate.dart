@@ -17,8 +17,8 @@ class const SheetScrolledContentDragGate({
       builder: (context, child) => ScrollConfiguration(
         behavior: _isSheetDragOnly(scrollController)
             ? ScrollConfiguration.of(context).copyWith(dragDevices: const {})
-            : ScrollConfiguration.of(context).copyWith(),
-        child: child ?? const SizedBox.shrink(),
+            : ScrollConfiguration.of(context),
+        child: child!,
       ),
       child: child,
     );

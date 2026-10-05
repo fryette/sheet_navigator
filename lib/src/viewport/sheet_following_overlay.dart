@@ -16,18 +16,15 @@ class const SheetFollowingOverlay({
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
     valueListenable: extent,
-    builder: (context, extent, child) => switch (child) {
-      final child? => _OverlaySlot(
-        availableHeight: availableHeight,
-        extent: extent,
-        standardExtent: standardExtent,
-        gap: gap,
-        left: left,
-        right: right,
-        child: child,
-      ),
-      null => const SizedBox.shrink(),
-    },
+    builder: (context, extent, child) => _OverlaySlot(
+      availableHeight: availableHeight,
+      extent: extent,
+      standardExtent: standardExtent,
+      gap: gap,
+      left: left,
+      right: right,
+      child: child!,
+    ),
     child: child,
   );
 }

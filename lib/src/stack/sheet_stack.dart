@@ -210,12 +210,7 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
 
   void _applyPop(int keepCount) {
     final departing = _live.sublist(keepCount);
-    final topmost = departing.lastOrNull;
-    if (topmost == null) {
-      _rebuildWithoutMotion();
-      return;
-    }
-
+    final topmost = departing.last;
     final returning = _live[keepCount - 1];
     final transition = SheetTransitionContext(
       operation: .pop,
@@ -244,12 +239,7 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
   }
 
   void _applyReplace() {
-    final outgoing = _live.lastOrNull;
-    if (outgoing == null) {
-      _rebuildWithoutMotion();
-      return;
-    }
-
+    final outgoing = _live.last;
     final [..., lastEntry] = widget.entries;
     final incoming = _createLiveSheet(lastEntry);
     final transition = SheetTransitionContext(
