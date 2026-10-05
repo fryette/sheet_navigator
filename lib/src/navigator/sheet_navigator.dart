@@ -244,7 +244,6 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     for (final controller in _controllers.values) {
       controller.dispose();
     }
-    _resetSheetInteracting();
     _visualTopExtent.dispose();
     _settledSnap.dispose();
     _isTransitionActive.dispose();

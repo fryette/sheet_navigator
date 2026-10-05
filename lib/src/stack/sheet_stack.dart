@@ -102,8 +102,6 @@ class _SheetStackState() extends State<SheetStack> with TickerProviderStateMixin
       _detachExtentListener(live);
     }
     _running?.dispose();
-    _setDragging(false);
-    _setContentScrolling(false);
     super.dispose();
   }
 

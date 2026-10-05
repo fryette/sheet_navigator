@@ -135,6 +135,29 @@ class _ParentSetStateHostState() extends State<_ParentSetStateHost> {
   }
 }
 
+class const _RemovableNavigatorHost({required final List<_TestFeature> features, super.key})
+    extends StatefulWidget {
+  @override
+  State<_RemovableNavigatorHost> createState() => _RemovableNavigatorHostState();
+}
+
+class _RemovableNavigatorHostState() extends State<_RemovableNavigatorHost> {
+  var isNavigatorVisible = true;
+  var isInteracting = false;
+
+  @override
+  Widget build(BuildContext context) => isNavigatorVisible
+      ? SheetNavigator<SheetRoute, _TestFeature>(
+          features: widget.features,
+          stack: const [_RootRoute()],
+          style: _style,
+          onSheetInteractingChanged: (value) => setState(() => isInteracting = value),
+        )
+      : const SizedBox();
+
+  void removeNavigator() => setState(() => isNavigatorVisible = false);
+}
+
 class const _DeclarativeHost({
   required final List<_TestFeature> features,
   required final List<SheetRoute> initialStack,
@@ -769,6 +792,30 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(signals, [true, false]);
+    });
+
+    testWidgets('removing the navigator mid-drag does not call back into a locked tree', (
+      tester,
+    ) async {
+      final hostKey = GlobalKey<_RemovableNavigatorHostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RemovableNavigatorHost(key: hostKey, features: [rootFeature(), tripFeature()]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(sheetDragStartOf(tester));
+      await gesture.moveBy(const Offset(0, -40));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -40));
+      await tester.pump();
+      expect(hostKey.currentState?.isInteracting, isTrue);
+
+      hostKey.currentState?.removeNavigator();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      await gesture.up();
     });
 
     testWidgets('scrolling the sheet content turns interaction on and off with the gesture', (
