@@ -259,6 +259,21 @@ void main() {
       await subscription.cancel();
     });
 
+    test('replacing the only route swaps the root and emits the new stack once', () async {
+      final emissions = <List<SheetRoute>>[];
+      final subscription = controller.stackChanges.listen(emissions.add);
+
+      controller.replaceTop(const _DetailsRoute());
+      await pumpEventQueue();
+
+      expect(controller.stack, const [_DetailsRoute()]);
+      expect(controller.depth, 1);
+      expect(emissions, [
+        const [_DetailsRoute()],
+      ]);
+      await subscription.cancel();
+    });
+
     test('replacing the top with the route already on top is a no-op', () async {
       final emissions = <List<SheetRoute>>[];
       final subscription = controller.stackChanges.listen(emissions.add);
