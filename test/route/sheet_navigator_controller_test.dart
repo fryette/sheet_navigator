@@ -13,6 +13,18 @@ final class const _DataRoute({required final String id, required final String da
   Object get pageKey => id;
 }
 
+final class const _FieldRoute({required final String id, required final String data})
+    extends SheetRoute {
+  @override
+  Object get pageKey => id;
+
+  @override
+  bool operator ==(Object other) => other is _FieldRoute && other.id == id && other.data == data;
+
+  @override
+  int get hashCode => Object.hash(id, data);
+}
+
 void main() {
   late SheetNavigatorController<SheetRoute> controller;
 
@@ -368,6 +380,43 @@ void main() {
         ..notifyRouteExited(const _ListRoute());
       await pumpEventQueue();
 
+      expect(emissions, isEmpty);
+      await subscription.cancel();
+    });
+  });
+  group('routes that override equality', () {
+    late SheetNavigatorController<SheetRoute> fieldController;
+
+    setUp(
+      () => fieldController = SheetNavigatorController<SheetRoute>(
+        root: const _FieldRoute(id: 'a', data: 'first'),
+      ),
+    );
+
+    tearDown(() => fieldController.dispose());
+
+    test('pushing a page key already in the stack is a no-op', () async {
+      fieldController.push(const _ListRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = fieldController.stackChanges.listen(emissions.add);
+
+      fieldController.push(const _FieldRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(fieldController.stack, const [_FieldRoute(id: 'a', data: 'first'), _ListRoute()]);
+      expect(emissions, isEmpty);
+      await subscription.cancel();
+    });
+
+    test('replacing the top with a page key already lower in the stack is a no-op', () async {
+      fieldController.push(const _ListRoute());
+      final emissions = <List<SheetRoute>>[];
+      final subscription = fieldController.stackChanges.listen(emissions.add);
+
+      fieldController.replaceTop(const _FieldRoute(id: 'a', data: 'second'));
+      await pumpEventQueue();
+
+      expect(fieldController.stack, const [_FieldRoute(id: 'a', data: 'first'), _ListRoute()]);
       expect(emissions, isEmpty);
       await subscription.cancel();
     });

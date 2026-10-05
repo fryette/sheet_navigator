@@ -26,7 +26,7 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
       _updateTop(route);
       return;
     }
-    if (stack.contains(route)) return;
+    if (_hasPageKey(route)) return;
 
     _tail.add(route);
     _emitStackChange();
@@ -55,7 +55,7 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
       _updateTop(route);
       return;
     }
-    if (stack.contains(route)) return;
+    if (_hasPageKey(route)) return;
 
     _setTop(route);
     _emitStackChange();
@@ -72,6 +72,8 @@ class SheetNavigatorController<R extends SheetRoute>({required final R root}) {
     unawaited(_stackChangesController.close());
     unawaited(_returnedToRootController.close());
   }
+
+  bool _hasPageKey(R route) => stack.any((existing) => existing.pageKey == route.pageKey);
 
   void _updateTop(R route) {
     if (identical(route, current)) return;
