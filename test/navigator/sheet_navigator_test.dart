@@ -999,6 +999,273 @@ void main() {
     });
   });
 
+  group('planned move', () {
+    final reports = <SheetRestingViewport>[];
+
+    double viewportHeightOf(WidgetTester tester) =>
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    List<double> restingExtents() => reports.map((report) => report.restingExtent).toList();
+
+    SheetMover moverOf(WidgetTester tester, SheetRoute route) =>
+        SheetMover.of(tester.element(_pageOf(route)));
+
+    Future<GlobalKey<_DeclarativeHostState>> pumpPlanningHost(
+      WidgetTester tester, {
+      ValueChanged<SheetController>? onController,
+      bool hasHeader = false,
+    }) {
+      reports.clear();
+      return pumpHost(
+        tester,
+        features: [
+          rootFeature(onController: onController, hasHeader: hasHeader),
+          tripFeature(),
+        ],
+        onRestingViewportChanged: reports.add,
+      );
+    }
+
+    testWidgets('a page header and body find the same page mover', (tester) async {
+      await pumpPlanningHost(tester, hasHeader: true);
+
+      expect(
+        SheetMover.of(tester.element(find.byKey(_headerKey))),
+        same(moverOf(tester, const _RootRoute())),
+      );
+    });
+
+    testWidgets('a page mover animates its own sheet to the extent', (tester) async {
+      late SheetController controller;
+      await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+      await tester.pumpAndSettle();
+
+      expect(controller.extent, closeTo(0.2, 0.005));
+    });
+
+    testWidgets(
+      'reports the planned resting viewport synchronously, once, and nothing more when the sheet '
+      'settles there',
+      (tester) async {
+        await pumpPlanningHost(tester);
+
+        unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+
+        expect(restingExtents(), [0.5, 0.2]);
+        expect(
+          reports.last.insets.bottom,
+          0.2 * viewportHeightOf(tester) + SheetRestingViewport.gap,
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(restingExtents(), [0.5, 0.2]);
+      },
+    );
+
+    testWidgets(
+      'a move to the snap the sheet rests at reports nothing and leaves the sheet still',
+      (tester) async {
+        late SheetController controller;
+        await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+        await moverOf(tester, const _RootRoute()).moveTo(0.5);
+
+        expect(restingExtents(), [0.5]);
+        expect(tester.hasRunningAnimations, isFalse);
+        expect(controller.extent, closeTo(0.5, 0.005));
+      },
+    );
+
+    testWidgets(
+      'a move to the largest snap reports nothing, because the resting area stops at the resting '
+      'snap',
+      (tester) async {
+        late SheetController controller;
+        await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+        unawaited(moverOf(tester, const _RootRoute()).moveTo(0.9));
+        await tester.pumpAndSettle();
+
+        expect(restingExtents(), [0.5]);
+        expect(controller.extent, closeTo(0.9, 0.005));
+      },
+    );
+
+    testWidgets('an extent within tolerance of a snap plans that exact snap', (tester) async {
+      await pumpPlanningHost(tester);
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.203));
+
+      expect(restingExtents(), [0.5, 0.2]);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a non-snap extent fails an assertion naming the page snap sizes', (tester) async {
+      await pumpPlanningHost(tester);
+
+      expect(
+        () => moverOf(tester, const _RootRoute()).moveTo(0.33),
+        throwsA(
+          isA<AssertionError>().having(
+            (error) => error.message,
+            'message',
+            contains('[0.2, 0.5, 0.9]'),
+          ),
+        ),
+      );
+    });
+
+    testWidgets('moving a covered page reports nothing', (tester) async {
+      final hostKey = await pumpPlanningHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      final reportCount = reports.length;
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+      await tester.pumpAndSettle();
+
+      expect(reports, hasLength(reportCount));
+    });
+
+    testWidgets('a mover kept after its page exited does nothing', (tester) async {
+      final hostKey = await pumpPlanningHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      final mover = moverOf(tester, const _ListRoute());
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+      final reportCount = reports.length;
+
+      await mover.moveTo(0.2);
+
+      expect(reports, hasLength(reportCount));
+    });
+
+    testWidgets(
+      'a drag that interrupts a move and settles back on the earlier snap reports that snap again',
+      (tester) async {
+        await pumpPlanningHost(tester);
+        unawaited(
+          moverOf(
+            tester,
+            const _RootRoute(),
+          ).moveTo(0.2, duration: const Duration(milliseconds: 600)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.dragFrom(
+          Offset(400, viewportHeightOf(tester) - 10),
+          Offset(0, -0.05 * viewportHeightOf(tester)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(restingExtents(), [0.5, 0.2, 0.5]);
+      },
+    );
+
+    testWidgets(
+      'a drag that interrupts a move and settles on the planned snap reports nothing more',
+      (tester) async {
+        late SheetController controller;
+        await pumpPlanningHost(tester, onController: (value) => controller = value);
+        unawaited(
+          moverOf(
+            tester,
+            const _RootRoute(),
+          ).moveTo(0.2, duration: const Duration(milliseconds: 600)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.dragFrom(
+          Offset(400, viewportHeightOf(tester) - 10),
+          Offset(0, 0.3 * viewportHeightOf(tester)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(controller.extent, closeTo(0.2, 0.005));
+        expect(restingExtents(), [0.5, 0.2]);
+      },
+    );
+
+    testWidgets('a new move replaces the running plan', (tester) async {
+      late SheetController controller;
+      await pumpPlanningHost(tester, onController: (value) => controller = value);
+      final mover = moverOf(tester, const _RootRoute());
+      unawaited(mover.moveTo(0.2, duration: const Duration(milliseconds: 600)));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      unawaited(mover.moveTo(0.5));
+
+      expect(restingExtents(), [0.5, 0.2, 0.5]);
+      await tester.pumpAndSettle();
+      expect(restingExtents(), [0.5, 0.2, 0.5]);
+      expect(controller.extent, closeTo(0.5, 0.005));
+    });
+
+    testWidgets('a move cancelled by another animation re-confirms the snap the sheet comes to '
+        'rest on', (tester) async {
+      late SheetController controller;
+      await pumpPlanningHost(tester, onController: (value) => controller = value);
+      unawaited(
+        moverOf(
+          tester,
+          const _RootRoute(),
+        ).moveTo(0.2, duration: const Duration(milliseconds: 600)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      unawaited(
+        controller.animateTo(
+          const SheetOffset.proportionalToViewport(0.5),
+          duration: const Duration(milliseconds: 50),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.extent, closeTo(0.5, 0.005));
+      expect(restingExtents(), [0.5, 0.2, 0.5]);
+    });
+
+    testWidgets(
+      'a page pushed during a move drops the plan and the revealed page reports where it really '
+      'rests',
+      (tester) async {
+        late SheetController rootController;
+        final hostKey = await pumpPlanningHost(
+          tester,
+          onController: (value) => rootController = value,
+        );
+        unawaited(
+          moverOf(
+            tester,
+            const _RootRoute(),
+          ).moveTo(0.2, duration: const Duration(milliseconds: 600)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+
+        hostKey.currentState?.push(const _ListRoute());
+        await tester.pumpAndSettle();
+
+        expect(reports.last.topPageKey, const _ListRoute().pageKey);
+        expect(reports.last.restingExtent, 0.5);
+
+        hostKey.currentState?.pop();
+        await tester.pumpAndSettle();
+
+        final rootSnap = [0.2, 0.5, 0.9].firstWhere(
+          (snap) => ((rootController.extent ?? -1) - snap).abs() <= 0.005,
+        );
+        expect(reports.last.topPageKey, const _RootRoute().pageKey);
+        expect(reports.last.restingExtent, rootSnap.clamp(0.2, 0.5));
+      },
+    );
+  });
+
   group('onSettledAfterDrag', () {
     double viewportHeightOf(WidgetTester tester) =>
         tester.view.physicalSize.height / tester.view.devicePixelRatio;

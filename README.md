@@ -24,7 +24,7 @@ The `smooth_sheets` override is recommended: the fork fixes the sheet overrunnin
 
 ## Usage
 
-Drive it declaratively from your own state with `SheetNavigator(stack: ..., onPopRequested: ...)`, or imperatively with `SheetNavigator.controlled` and a `SheetNavigatorController` (`push`, `pop`, `replaceTop`, `popToRoot`). Pages are described by `SheetFeature`s that turn a `SheetRoute` into a `SheetPage` with its snap sizes; the look is injected through `SheetNavigatorStyle`.
+Drive it declaratively from your own state with `SheetNavigator(stack: ..., onPopRequested: ...)`, or imperatively with `SheetNavigator.controlled` and a `SheetNavigatorController` (`push`, `pop`, `replaceTop`, `popToRoot`). Pages are described by `SheetFeature`s that turn a `SheetRoute` into a `SheetPage` with its snap sizes; the look is injected through `SheetNavigatorStyle`. Inside a page, move the sheet with `SheetMover.of(context).moveTo(snap)` rather than the `SheetController`: the navigator reports the resting viewport for that snap through `onRestingViewportChanged` as the move starts, so overlays can frame against where the sheet will rest. `SheetMover.controller(controller)` gives a plain mover for sheets outside a navigator.
 
 ## Development
 
