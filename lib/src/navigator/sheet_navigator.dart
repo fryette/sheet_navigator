@@ -203,6 +203,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
             ? 1.0
             : topPage.snapSizes.reduce(math.max);
         _topPageExpandedExtent = topPageExpandedExtent;
+        if (_plannedSnap?.pageKey != topRoute.pageKey) _plannedSnap = null;
         _topPageKey = topRoute.pageKey;
         _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
@@ -448,9 +449,19 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         _plannedSnap == null && extent != null && (extent - snap).abs() <= _settledSnapTolerance;
     if (isResting) return Future.value();
 
-    _plannedSnap = _PlannedSnap(pageKey, snap);
+    final plan = _PlannedSnap(pageKey, snap);
+    _plannedSnap = plan;
     _reportRestingViewportNow();
-    return controller.animateTo(offset, duration: duration, curve: curve);
+    return controller
+        .animateTo(offset, duration: duration, curve: curve)
+        .whenComplete(() => _endPlannedMove(plan));
+  }
+
+  void _endPlannedMove(_PlannedSnap plan) {
+    if (!mounted || !identical(_plannedSnap, plan)) return;
+
+    plan.isRunning = false;
+    _publishSettledSnap();
   }
 
   void _requestPop() {
@@ -717,6 +728,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (!mounted) return;
 
     if (isDragging) {
+      _plannedSnap = null;
       _updateSheetInteracting(isDragUnsettled: true);
     } else if (_isTopPageRestingOnSnap) {
       _updateSheetInteracting(isDragUnsettled: false);
