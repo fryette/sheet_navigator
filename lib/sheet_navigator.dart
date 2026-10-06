@@ -2,6 +2,7 @@ export 'package:smooth_sheets/smooth_sheets.dart'
     show SheetController, SheetMetrics, SheetOffset, SheetPhysics;
 
 export 'src/navigator/sheet_feature.dart';
+export 'src/navigator/sheet_mover.dart';
 export 'src/navigator/sheet_navigator.dart';
 export 'src/navigator/sheet_navigator_scope.dart';
 export 'src/navigator/sheet_navigator_style.dart';

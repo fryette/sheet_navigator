@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:sheet_navigator/src/navigator/sheet_feature.dart';
+import 'package:sheet_navigator/src/navigator/sheet_mover.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_scope.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_style.dart';
 import 'package:sheet_navigator/src/navigator/sheet_overlay_layer.dart';
@@ -120,6 +121,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   var _restingPageKeys = const <Object>[];
   SheetRestingViewport? _lastReportedRestingViewport;
   var _isRestingReportScheduled = false;
+  final _movers = <Object, SheetMover>{};
   var _isActive = true;
 
   bool get _isSheetInteracting => _isDragUnsettled || _isContentScrolling;
@@ -177,7 +179,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           final page = _featureFor(route).page(context, route, availableHeight, controller);
           if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
           _pagesByPageKey[route.pageKey] = page;
-          entries.add(SheetStackEntry(route: route, page: page, controller: controller));
+          entries.add(
+            SheetStackEntry(
+              route: route,
+              page: _withMoverScope(page, _moverFor(route.pageKey)),
+              controller: controller,
+            ),
+          );
         }
         final [..., topRoute] = _stack;
         final topFeatureIndex = _featureIndexFor(topRoute);
@@ -409,6 +417,20 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   SheetController _controllerFor(Object pageKey) =>
       _controllers.putIfAbsent(pageKey, SheetController.new);
 
+  SheetMover _moverFor(Object pageKey) =>
+      _movers.putIfAbsent(pageKey, () => _PageSheetMover(pageKey, _moveTo));
+
+  Future<void> _moveTo(Object pageKey, double snapExtent, Duration duration, Curve curve) {
+    final controller = _controllers[pageKey];
+    if (!mounted || controller == null || !controller.hasClient) return Future.value();
+
+    return controller.animateTo(
+      SheetOffset.proportionalToViewport(snapExtent),
+      duration: duration,
+      curve: curve,
+    );
+  }
+
   void _requestPop() {
     if (widget.controller case final controller?) {
       controller.pop();
@@ -433,6 +455,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
 
     _controllers.remove(pageKey)?.dispose();
+    _movers.remove(pageKey);
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
     _confirmedSnapByPage.remove(pageKey);
@@ -718,6 +741,34 @@ bool _hasSamePageKeys(List<SheetRoute> first, List<SheetRoute> second) =>
 
 bool _isTopSheetFullyExpanded(double? extent, double expandedExtent) =>
     extent != null && extent >= expandedExtent - _fullyExpandedExtentTolerance;
+
+SheetPage _withMoverScope(SheetPage page, SheetMover mover) => SheetPage(
+  pageKey: page.pageKey,
+  initialSize: page.initialSize,
+  snapSizes: page.snapSizes,
+  builder: (context, scrollController) =>
+      SheetMoverScope(mover: mover, child: page.builder(context, scrollController)),
+  header: switch (page.header) {
+    final header? => (context) => SheetMoverScope(mover: mover, child: header(context)),
+    null => null,
+  },
+  pinnedExtent: page.pinnedExtent,
+  backgroundTopInset: page.backgroundTopInset,
+  focusExtent: page.focusExtent,
+);
+
+typedef _SheetMove =
+    Future<void> Function(Object pageKey, double snapExtent, Duration duration, Curve curve);
+
+final class const _PageSheetMover(final Object _pageKey, final _SheetMove _move)
+    implements SheetMover {
+  @override
+  Future<void> moveTo(
+    double snapExtent, {
+    Duration duration = const Duration(milliseconds: 300),
+    Curve curve = Curves.easeInOut,
+  }) => _move(_pageKey, snapExtent, duration, curve);
+}
 
 class _PendingFeatureExit<R extends SheetRoute>() {
   final Set<Object> pendingPageKeys = {};

@@ -999,6 +999,48 @@ void main() {
     });
   });
 
+  group('planned move', () {
+    final reports = <SheetRestingViewport>[];
+
+    SheetMover moverOf(WidgetTester tester, SheetRoute route) =>
+        SheetMover.of(tester.element(_pageOf(route)));
+
+    Future<GlobalKey<_DeclarativeHostState>> pumpPlanningHost(
+      WidgetTester tester, {
+      ValueChanged<SheetController>? onController,
+      bool hasHeader = false,
+    }) {
+      reports.clear();
+      return pumpHost(
+        tester,
+        features: [
+          rootFeature(onController: onController, hasHeader: hasHeader),
+          tripFeature(),
+        ],
+        onRestingViewportChanged: reports.add,
+      );
+    }
+
+    testWidgets('a page header and body find the same page mover', (tester) async {
+      await pumpPlanningHost(tester, hasHeader: true);
+
+      expect(
+        SheetMover.of(tester.element(find.byKey(_headerKey))),
+        same(moverOf(tester, const _RootRoute())),
+      );
+    });
+
+    testWidgets('a page mover animates its own sheet to the extent', (tester) async {
+      late SheetController controller;
+      await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+      await tester.pumpAndSettle();
+
+      expect(controller.extent, closeTo(0.2, 0.005));
+    });
+  });
+
   group('onSettledAfterDrag', () {
     double viewportHeightOf(WidgetTester tester) =>
         tester.view.physicalSize.height / tester.view.devicePixelRatio;
