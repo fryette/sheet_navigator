@@ -1002,6 +1002,11 @@ void main() {
   group('planned move', () {
     final reports = <SheetRestingViewport>[];
 
+    double viewportHeightOf(WidgetTester tester) =>
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+
+    List<double> restingExtents() => reports.map((report) => report.restingExtent).toList();
+
     SheetMover moverOf(WidgetTester tester, SheetRoute route) =>
         SheetMover.of(tester.element(_pageOf(route)));
 
@@ -1038,6 +1043,105 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(controller.extent, closeTo(0.2, 0.005));
+    });
+
+    testWidgets(
+      'reports the planned resting viewport synchronously, once, and nothing more when the sheet '
+      'settles there',
+      (tester) async {
+        await pumpPlanningHost(tester);
+
+        unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+
+        expect(restingExtents(), [0.5, 0.2]);
+        expect(
+          reports.last.insets.bottom,
+          0.2 * viewportHeightOf(tester) + SheetRestingViewport.gap,
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(restingExtents(), [0.5, 0.2]);
+      },
+    );
+
+    testWidgets(
+      'a move to the snap the sheet rests at reports nothing and leaves the sheet still',
+      (tester) async {
+        late SheetController controller;
+        await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+        await moverOf(tester, const _RootRoute()).moveTo(0.5);
+
+        expect(restingExtents(), [0.5]);
+        expect(tester.hasRunningAnimations, isFalse);
+        expect(controller.extent, closeTo(0.5, 0.005));
+      },
+    );
+
+    testWidgets(
+      'a move to the largest snap reports nothing, because the resting area stops at the resting '
+      'snap',
+      (tester) async {
+        late SheetController controller;
+        await pumpPlanningHost(tester, onController: (value) => controller = value);
+
+        unawaited(moverOf(tester, const _RootRoute()).moveTo(0.9));
+        await tester.pumpAndSettle();
+
+        expect(restingExtents(), [0.5]);
+        expect(controller.extent, closeTo(0.9, 0.005));
+      },
+    );
+
+    testWidgets('an extent within tolerance of a snap plans that exact snap', (tester) async {
+      await pumpPlanningHost(tester);
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.203));
+
+      expect(restingExtents(), [0.5, 0.2]);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a non-snap extent fails an assertion naming the page snap sizes', (tester) async {
+      await pumpPlanningHost(tester);
+
+      expect(
+        () => moverOf(tester, const _RootRoute()).moveTo(0.33),
+        throwsA(
+          isA<AssertionError>().having(
+            (error) => error.message,
+            'message',
+            contains('[0.2, 0.5, 0.9]'),
+          ),
+        ),
+      );
+    });
+
+    testWidgets('moving a covered page reports nothing', (tester) async {
+      final hostKey = await pumpPlanningHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      final reportCount = reports.length;
+
+      unawaited(moverOf(tester, const _RootRoute()).moveTo(0.2));
+      await tester.pumpAndSettle();
+
+      expect(reports, hasLength(reportCount));
+    });
+
+    testWidgets('a mover kept after its page exited does nothing', (tester) async {
+      final hostKey = await pumpPlanningHost(tester);
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      final mover = moverOf(tester, const _ListRoute());
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+      final reportCount = reports.length;
+
+      await mover.moveTo(0.2);
+
+      expect(reports, hasLength(reportCount));
     });
   });
 

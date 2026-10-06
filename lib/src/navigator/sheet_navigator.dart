@@ -122,6 +122,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   SheetRestingViewport? _lastReportedRestingViewport;
   var _isRestingReportScheduled = false;
   final _movers = <Object, SheetMover>{};
+  _PlannedSnap? _plannedSnap;
   var _isActive = true;
 
   bool get _isSheetInteracting => _isDragUnsettled || _isContentScrolling;
@@ -135,6 +136,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   double? get _settledTopPageExtent =>
       _isTransitionActive.value ? null : _controllers[_topPageKey]?.extent ?? _topPageInitialSize;
+
+  SheetSettledSnap? get _restingSnap => switch (_plannedSnap) {
+    final plan? => (pageKey: plan.pageKey, extent: plan.extent),
+    null => _settledSnap.value,
+  };
 
   @override
   void initState() {
@@ -422,13 +428,29 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   Future<void> _moveTo(Object pageKey, double snapExtent, Duration duration, Curve curve) {
     final controller = _controllers[pageKey];
-    if (!mounted || controller == null || !controller.hasClient) return Future.value();
+    final page = _pagesByPageKey[pageKey];
+    if (!mounted || controller == null || page == null || !controller.hasClient) {
+      return Future.value();
+    }
 
-    return controller.animateTo(
-      SheetOffset.proportionalToViewport(snapExtent),
-      duration: duration,
-      curve: curve,
+    assert(
+      page.snapSizes.any((snap) => (snap - snapExtent).abs() <= _settledSnapTolerance),
+      'SheetMover.moveTo($snapExtent) needs one of the page snap sizes ${page.snapSizes}.',
     );
+    final snap = minBy(page.snapSizes, (snap) => (snap - snapExtent).abs()) ?? snapExtent;
+    final offset = SheetOffset.proportionalToViewport(snap);
+    if (pageKey != _topPageKey) {
+      return controller.animateTo(offset, duration: duration, curve: curve);
+    }
+
+    final extent = controller.extent;
+    final isResting =
+        _plannedSnap == null && extent != null && (extent - snap).abs() <= _settledSnapTolerance;
+    if (isResting) return Future.value();
+
+    _plannedSnap = _PlannedSnap(pageKey, snap);
+    _reportRestingViewportNow();
+    return controller.animateTo(offset, duration: duration, curve: curve);
   }
 
   void _requestPop() {
@@ -562,13 +584,17 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
   void _reportRestingViewport() {
     _isRestingReportScheduled = false;
+    _reportRestingViewportNow();
+  }
+
+  void _reportRestingViewportNow() {
     final topPage = _restingTopPage;
     final onChanged = widget.onRestingViewportChanged;
     if (!mounted || !_isActive || topPage == null || onChanged == null) return;
 
     final viewport = SheetRestingViewport.resolve(
       topPage: topPage,
-      settledSnap: _settledSnap.value,
+      settledSnap: _restingSnap,
       size: _restingSize,
       pageKeys: _restingPageKeys,
     );
@@ -600,10 +626,14 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     for (final snap in _topPageSnapSizes) {
       if ((extent - snap).abs() <= _settledSnapTolerance) {
+        if (_plannedSnap case final plan? when plan.isRunning && plan.extent != snap) return;
+
+        _plannedSnap = null;
         _settledSnap.value = (pageKey: pageKey, extent: snap);
         _confirmedSnapByPage[pageKey] = snap;
         _recordSettledSnap(pageKey, snap);
         _handleDragSettled();
+        _scheduleRestingViewportReport();
         return;
       }
     }
@@ -1045,4 +1075,8 @@ class _SheetLayerState<R extends SheetRoute, F extends SheetFeature<R>>()
       widget.topFeature.onAvailableHeightChanged(context, widget.topRoute);
     }
   }
+}
+
+final class _PlannedSnap(final Object pageKey, final double extent) {
+  bool isRunning = true;
 }
