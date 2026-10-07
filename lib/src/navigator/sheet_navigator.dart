@@ -37,6 +37,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
   final ValueChanged<bool>? onSheetInteractingChanged,
   final ValueChanged<double?>? onVisualTopExtentChanged,
   final ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+  final double? restingAvailableHeight,
   final Duration exitFallbackTimeout = const Duration(milliseconds: 600),
   super.key,
 }) extends StatefulWidget {
@@ -58,6 +59,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
     ValueChanged<bool>? onSheetInteractingChanged,
     ValueChanged<double?>? onVisualTopExtentChanged,
     ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+    double? restingAvailableHeight,
     Duration exitFallbackTimeout = const Duration(milliseconds: 600),
     Key? key,
   }) : this(
@@ -73,6 +75,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
          onSheetInteractingChanged: onSheetInteractingChanged,
          onVisualTopExtentChanged: onVisualTopExtentChanged,
          onRestingViewportChanged: onRestingViewportChanged,
+         restingAvailableHeight: restingAvailableHeight,
          exitFallbackTimeout: exitFallbackTimeout,
          key: key,
        );
@@ -208,8 +211,16 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
         _topPageSnapSizes = topPage.snapSizes;
-        _restingTopPage = topPage;
-        _restingSize = Size(availableWidth, availableHeight);
+        final restingAvailableHeight = widget.restingAvailableHeight ?? availableHeight;
+        _restingTopPage = restingAvailableHeight == availableHeight
+            ? topPage
+            : topFeature.page(
+                context,
+                topRoute,
+                restingAvailableHeight,
+                _controllerFor(topRoute.pageKey),
+              );
+        _restingSize = Size(availableWidth, restingAvailableHeight);
         _restingPageKeys = [for (final route in _stack) route.pageKey];
         _scheduleRestingViewportReport();
         _publishTopSheetFullyExpanded(
@@ -799,8 +810,12 @@ SheetPage _withMoverScope(SheetPage page, SheetMover mover) => SheetPage(
   focusExtent: page.focusExtent,
 );
 
-typedef _SheetMove =
-    Future<void> Function(Object pageKey, double snapExtent, Duration duration, Curve curve);
+typedef _SheetMove = Future<void> Function(
+  Object pageKey,
+  double snapExtent,
+  Duration duration,
+  Curve curve,
+);
 
 final class const _PageSheetMover(final Object _pageKey, final _SheetMove _move)
     implements SheetMover {

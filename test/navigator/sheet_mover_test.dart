@@ -9,10 +9,7 @@ void main() {
   testWidgets('of throws a FlutterError outside a mover scope', (tester) async {
     await tester.pumpWidget(const SizedBox());
 
-    expect(
-      () => SheetMover.of(tester.element(find.byType(SizedBox))),
-      throwsFlutterError,
-    );
+    expect(() => SheetMover.of(tester.element(find.byType(SizedBox))), throwsFlutterError);
   });
 
   testWidgets('maybeOf returns the mover of the nearest scope', (tester) async {
@@ -20,37 +17,24 @@ void main() {
     addTearDown(controller.dispose);
     final mover = SheetMover.controller(controller);
 
-    await tester.pumpWidget(
-      SheetMoverScope(mover: mover, child: const SizedBox()),
-    );
+    await tester.pumpWidget(SheetMoverScope(mover: mover, child: const SizedBox()));
 
-    expect(
-      SheetMover.maybeOf(tester.element(find.byType(SizedBox))),
-      same(mover),
-    );
+    expect(SheetMover.maybeOf(tester.element(find.byType(SizedBox))), same(mover));
   });
 
-  testWidgets('a scope rebuilt with another mover hands out the new one', (
-    tester,
-  ) async {
+  testWidgets('a scope rebuilt with another mover hands out the new one', (tester) async {
     final controller = SheetController();
     addTearDown(controller.dispose);
     final first = SheetMover.controller(controller);
     final second = SheetMover.controller(controller);
 
-    await tester.pumpWidget(
-      SheetMoverScope(mover: first, child: const SizedBox()),
-    );
-    await tester.pumpWidget(
-      SheetMoverScope(mover: second, child: const SizedBox()),
-    );
+    await tester.pumpWidget(SheetMoverScope(mover: first, child: const SizedBox()));
+    await tester.pumpWidget(SheetMoverScope(mover: second, child: const SizedBox()));
 
     expect(SheetMover.of(tester.element(find.byType(SizedBox))), same(second));
   });
 
-  testWidgets('a controller mover animates its sheet to the extent', (
-    tester,
-  ) async {
+  testWidgets('a controller mover animates its sheet to the extent', (tester) async {
     final controller = SheetController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(
@@ -77,16 +61,10 @@ void main() {
     expect(controller.extent, closeTo(0.2, 0.005));
   });
 
-  test(
-    'a controller mover without an attached sheet completes without moving',
-    () async {
-      final controller = SheetController();
-      addTearDown(controller.dispose);
+  test('a controller mover without an attached sheet completes without moving', () async {
+    final controller = SheetController();
+    addTearDown(controller.dispose);
 
-      await expectLater(
-        SheetMover.controller(controller).moveTo(0.2),
-        completes,
-      );
-    },
-  );
+    await expectLater(SheetMover.controller(controller).moveTo(0.2), completes);
+  });
 }

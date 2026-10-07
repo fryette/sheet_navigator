@@ -21,18 +21,13 @@ abstract interface class SheetMover {
   });
 }
 
-class const SheetMoverScope({
-  required final SheetMover mover,
-  required super.child,
-  super.key,
-}) extends InheritedWidget {
+class const SheetMoverScope({required final SheetMover mover, required super.child, super.key})
+    extends InheritedWidget {
   @override
-  bool updateShouldNotify(SheetMoverScope oldWidget) =>
-      mover != oldWidget.mover;
+  bool updateShouldNotify(SheetMoverScope oldWidget) => mover != oldWidget.mover;
 }
 
-final class const _ControllerSheetMover(final SheetController _controller)
-    implements SheetMover {
+final class const _ControllerSheetMover(final SheetController _controller) implements SheetMover {
   @override
   Future<void> moveTo(
     double snapExtent, {
