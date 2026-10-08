@@ -1046,6 +1046,34 @@ void main() {
       expect(reports.single.size.height, 400);
     });
 
+    testWidgets('holds the resting height through sub-tolerance noise in the planned height', (
+      tester,
+    ) async {
+      reports.clear();
+      final features = [
+        _HeightAwareFeature(matcher: (route) => route is _RootRoute, log: log),
+        tripFeature(),
+      ];
+      Widget hostWithRestingHeight(double restingHeight) => MaterialApp(
+        home: _DeclarativeHost(
+          features: features,
+          initialStack: const [_RootRoute()],
+          onRouteExited: exited.add,
+          onRestingViewportChanged: reports.add,
+          restingAvailableHeight: restingHeight,
+        ),
+      );
+
+      for (final height in [400.0, 400.000000001, 399.999999999, 400.004]) {
+        await tester.pumpWidget(hostWithRestingHeight(height));
+        await tester.pump();
+      }
+      await tester.pumpWidget(hostWithRestingHeight(380));
+      await tester.pump();
+
+      expect(reports.map((report) => report.size.height), [400, 380]);
+    });
+
     testWidgets('the viewport state exposes the resting extent', (tester) async {
       final extents = <double?>[];
       await pumpHost(

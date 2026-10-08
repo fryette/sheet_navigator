@@ -87,6 +87,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
 const _fullyExpandedExtentTolerance = 0.0005;
 const _settledSnapTolerance = 0.005;
 const _settledSnapMaxFrameDelta = 0.001;
+const _restingHeightTolerance = 0.01;
 
 const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
@@ -211,7 +212,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
         _topPageSnapSizes = topPage.snapSizes;
-        final restingAvailableHeight = widget.restingAvailableHeight ?? availableHeight;
+        final restingAvailableHeight = _heldRestingHeight(
+          widget.restingAvailableHeight ?? availableHeight,
+        );
         _restingTopPage = restingAvailableHeight == availableHeight
             ? topPage
             : topFeature.page(
@@ -593,6 +596,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         _isTopSheetFullyExpanded(_settledTopPageExtent, _topPageExpandedExtent),
       );
     }
+  }
+
+  double _heldRestingHeight(double height) {
+    final held = _restingSize.height;
+    return (held - height).abs() < _restingHeightTolerance ? held : height;
   }
 
   void _scheduleRestingViewportReport() {
