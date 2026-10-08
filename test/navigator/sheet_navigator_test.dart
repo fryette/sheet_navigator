@@ -92,6 +92,27 @@ class _TestFeature({
   }
 }
 
+class _HeightAwareFeature({required super.matcher, required super.log}) extends _TestFeature {
+  static const restingHeight = 200.0;
+
+  @override
+  SheetPage page(
+    BuildContext context,
+    SheetRoute route,
+    double availableHeight,
+    SheetController controller,
+  ) {
+    final resting = restingHeight / availableHeight;
+    return SheetPage(
+      pageKey: route.pageKey,
+      initialSize: resting,
+      snapSizes: [resting, 1],
+      builder: (context, scrollController) =>
+          SizedBox(key: ValueKey('page_${route.pageKey}'), height: 40),
+    );
+  }
+}
+
 class _ScopedTripFeature({required super.matcher, required super.log}) extends _TestFeature {
   @override
   Widget scope(BuildContext context, Widget child) =>
@@ -198,6 +219,7 @@ class const _DeclarativeHost({
   final ValueChanged<bool>? onSheetInteractingChanged,
   final ValueChanged<double?>? onVisualTopExtentChanged,
   final ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+  final double? restingAvailableHeight,
   super.key,
 }) extends StatefulWidget {
   @override
@@ -221,6 +243,7 @@ class _DeclarativeHostState() extends State<_DeclarativeHost> {
     onSheetInteractingChanged: widget.onSheetInteractingChanged,
     onVisualTopExtentChanged: widget.onVisualTopExtentChanged,
     onRestingViewportChanged: widget.onRestingViewportChanged,
+    restingAvailableHeight: widget.restingAvailableHeight,
   );
 
   void push(SheetRoute route) => setState(() => _stack = [..._stack, route]);
@@ -275,24 +298,26 @@ void main() {
     ValueChanged<bool>? onSheetInteractingChanged,
     ValueChanged<double?>? onVisualTopExtentChanged,
     ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+    double? restingAvailableHeight,
     Widget Function(Widget host)? wrap,
   }) async {
     final hostKey = GlobalKey<_DeclarativeHostState>();
     final host = _DeclarativeHost(
-          key: hostKey,
-          features: features ?? [rootFeature(), tripFeature()],
-          initialStack: initialStack,
-          transitions: transitions,
-          sheetLayerWrapper: sheetLayerWrapper,
-          onTopFullyExpandedChanged: onTopFullyExpandedChanged,
-          onSheetInteractingChanged: onSheetInteractingChanged,
-          onVisualTopExtentChanged: onVisualTopExtentChanged,
-          onRestingViewportChanged: onRestingViewportChanged,
-          onRouteExited: (route) {
-            expect(_pageOf(route), findsNothing);
-            exited.add(route);
-          },
-        );
+      key: hostKey,
+      features: features ?? [rootFeature(), tripFeature()],
+      initialStack: initialStack,
+      transitions: transitions,
+      sheetLayerWrapper: sheetLayerWrapper,
+      onTopFullyExpandedChanged: onTopFullyExpandedChanged,
+      onSheetInteractingChanged: onSheetInteractingChanged,
+      onVisualTopExtentChanged: onVisualTopExtentChanged,
+      onRestingViewportChanged: onRestingViewportChanged,
+      restingAvailableHeight: restingAvailableHeight,
+      onRouteExited: (route) {
+        expect(_pageOf(route), findsNothing);
+        exited.add(route);
+      },
+    );
     await tester.pumpWidget(MaterialApp(home: wrap?.call(host) ?? host));
     await tester.pumpAndSettle();
     return hostKey;
@@ -754,9 +779,7 @@ void main() {
     double viewportHeightOf(WidgetTester tester) =>
         tester.view.physicalSize.height / tester.view.devicePixelRatio;
 
-    Future<GlobalKey<_DeclarativeHostState>> pumpRecordingHost(
-      WidgetTester tester,
-    ) {
+    Future<GlobalKey<_DeclarativeHostState>> pumpRecordingHost(WidgetTester tester) {
       settledSnaps.clear();
       return pumpHost(
         tester,
@@ -775,9 +798,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a revealed page publishes the snap it was left resting at', (
-      tester,
-    ) async {
+    testWidgets('a revealed page publishes the snap it was left resting at', (tester) async {
       final hostKey = await pumpRecordingHost(tester);
       await dragRootToLargestSnap(tester);
       final rootSnap = settledSnaps.last;
@@ -794,44 +815,35 @@ void main() {
       expect(settledSnaps.last, rootSnap);
     });
 
-    testWidgets(
-      'the remembered snap is published as soon as the page is top again',
-      (tester) async {
-        final hostKey = await pumpRecordingHost(tester);
-        await dragRootToLargestSnap(tester);
-        final rootSnap = settledSnaps.last;
-        hostKey.currentState?.push(const _ListRoute());
-        await tester.pumpAndSettle();
-
-        hostKey.currentState?.pop();
-        await tester.pump();
-        await tester.pump();
-
-        expect(settledSnaps.last, rootSnap);
-        await tester.pumpAndSettle();
-      },
-    );
-
-    testWidgets(
-      'a page resting at a snap is confirmed when the transition ends',
-      (tester) async {
-        final hostKey = await pumpRecordingHost(tester);
-
-        hostKey.currentState?.push(const _ListRoute());
-        await tester.pumpAndSettle();
-        hostKey.currentState?.pop();
-        await tester.pumpAndSettle();
-
-        expect(settledSnaps.last, (
-          pageKey: const _RootRoute().pageKey,
-          extent: 0.5,
-        ));
-      },
-    );
-
-    testWidgets('a removed route is forgotten when it returns to the stack', (
+    testWidgets('the remembered snap is published as soon as the page is top again', (
       tester,
     ) async {
+      final hostKey = await pumpRecordingHost(tester);
+      await dragRootToLargestSnap(tester);
+      final rootSnap = settledSnaps.last;
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+
+      hostKey.currentState?.pop();
+      await tester.pump();
+      await tester.pump();
+
+      expect(settledSnaps.last, rootSnap);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a page resting at a snap is confirmed when the transition ends', (tester) async {
+      final hostKey = await pumpRecordingHost(tester);
+
+      hostKey.currentState?.push(const _ListRoute());
+      await tester.pumpAndSettle();
+      hostKey.currentState?.pop();
+      await tester.pumpAndSettle();
+
+      expect(settledSnaps.last, (pageKey: const _RootRoute().pageKey, extent: 0.5));
+    });
+
+    testWidgets('a removed route is forgotten when it returns to the stack', (tester) async {
       final hostKey = await pumpRecordingHost(tester);
       await dragRootToLargestSnap(tester);
 
@@ -842,10 +854,7 @@ void main() {
       hostKey.currentState?.pop();
       await tester.pumpAndSettle();
 
-      expect(settledSnaps.last, (
-        pageKey: const _RootRoute().pageKey,
-        extent: 0.5,
-      ));
+      expect(settledSnaps.last, (pageKey: const _RootRoute().pageKey, extent: 0.5));
     });
   });
 
@@ -860,11 +869,7 @@ void main() {
       Widget Function(Widget host)? wrap,
     }) {
       reports.clear();
-      return pumpHost(
-        tester,
-        wrap: wrap,
-        onRestingViewportChanged: reports.add,
-      );
+      return pumpHost(tester, wrap: wrap, onRestingViewportChanged: reports.add);
     }
 
     testWidgets('reports once when first laid out', (tester) async {
@@ -983,6 +988,90 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(reportsLater, hasLength(1));
+    });
+
+    testWidgets('resolves against the resting available height instead of the laid out one', (
+      tester,
+    ) async {
+      reports.clear();
+      await pumpHost(
+        tester,
+        features: [
+          _HeightAwareFeature(matcher: (route) => route is _RootRoute, log: log),
+          tripFeature(),
+        ],
+        onRestingViewportChanged: reports.add,
+        restingAvailableHeight: 400,
+      );
+
+      expect(reports, hasLength(1));
+      expect(reports.single.size.height, 400);
+      expect(reports.single.restingExtent, _HeightAwareFeature.restingHeight / 400);
+      expect(
+        reports.single.insets.bottom,
+        _HeightAwareFeature.restingHeight + SheetRestingViewport.gap,
+      );
+    });
+
+    testWidgets('stays silent while the laid out height moves towards the resting height', (
+      tester,
+    ) async {
+      reports.clear();
+      final features = [
+        _HeightAwareFeature(matcher: (route) => route is _RootRoute, log: log),
+        tripFeature(),
+      ];
+      Widget hostOfHeight(double height) => MaterialApp(
+        home: Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            height: height,
+            child: _DeclarativeHost(
+              features: features,
+              initialStack: const [_RootRoute()],
+              onRouteExited: exited.add,
+              onRestingViewportChanged: reports.add,
+              restingAvailableHeight: 400,
+            ),
+          ),
+        ),
+      );
+
+      for (final height in [560.0, 500.0, 440.0, 400.0]) {
+        await tester.pumpWidget(hostOfHeight(height));
+        await tester.pump();
+      }
+
+      expect(reports, hasLength(1));
+      expect(reports.single.size.height, 400);
+    });
+
+    testWidgets('holds the resting height through sub-tolerance noise in the planned height', (
+      tester,
+    ) async {
+      reports.clear();
+      final features = [
+        _HeightAwareFeature(matcher: (route) => route is _RootRoute, log: log),
+        tripFeature(),
+      ];
+      Widget hostWithRestingHeight(double restingHeight) => MaterialApp(
+        home: _DeclarativeHost(
+          features: features,
+          initialStack: const [_RootRoute()],
+          onRouteExited: exited.add,
+          onRestingViewportChanged: reports.add,
+          restingAvailableHeight: restingHeight,
+        ),
+      );
+
+      for (final height in [400.0, 400.000000001, 399.999999999, 400.004]) {
+        await tester.pumpWidget(hostWithRestingHeight(height));
+        await tester.pump();
+      }
+      await tester.pumpWidget(hostWithRestingHeight(380));
+      await tester.pump();
+
+      expect(reports.map((report) => report.size.height), [400, 380]);
     });
 
     testWidgets('the viewport state exposes the resting extent', (tester) async {
@@ -1257,9 +1346,11 @@ void main() {
         hostKey.currentState?.pop();
         await tester.pumpAndSettle();
 
-        final rootSnap = [0.2, 0.5, 0.9].firstWhere(
-          (snap) => ((rootController.extent ?? -1) - snap).abs() <= 0.005,
-        );
+        final rootSnap = [
+          0.2,
+          0.5,
+          0.9,
+        ].firstWhere((snap) => ((rootController.extent ?? -1) - snap).abs() <= 0.005);
         expect(reports.last.topPageKey, const _RootRoute().pageKey);
         expect(reports.last.restingExtent, rootSnap.clamp(0.2, 0.5));
       },

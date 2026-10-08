@@ -37,6 +37,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
   final ValueChanged<bool>? onSheetInteractingChanged,
   final ValueChanged<double?>? onVisualTopExtentChanged,
   final ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+  final double? restingAvailableHeight,
   final Duration exitFallbackTimeout = const Duration(milliseconds: 600),
   super.key,
 }) extends StatefulWidget {
@@ -58,6 +59,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
     ValueChanged<bool>? onSheetInteractingChanged,
     ValueChanged<double?>? onVisualTopExtentChanged,
     ValueChanged<SheetRestingViewport>? onRestingViewportChanged,
+    double? restingAvailableHeight,
     Duration exitFallbackTimeout = const Duration(milliseconds: 600),
     Key? key,
   }) : this(
@@ -73,6 +75,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
          onSheetInteractingChanged: onSheetInteractingChanged,
          onVisualTopExtentChanged: onVisualTopExtentChanged,
          onRestingViewportChanged: onRestingViewportChanged,
+         restingAvailableHeight: restingAvailableHeight,
          exitFallbackTimeout: exitFallbackTimeout,
          key: key,
        );
@@ -84,6 +87,7 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
 const _fullyExpandedExtentTolerance = 0.0005;
 const _settledSnapTolerance = 0.005;
 const _settledSnapMaxFrameDelta = 0.001;
+const _restingHeightTolerance = 0.01;
 
 const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
@@ -208,8 +212,18 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         _restoreRememberedSnap(topRoute.pageKey);
         _topPageInitialSize = topPage.initialSize;
         _topPageSnapSizes = topPage.snapSizes;
-        _restingTopPage = topPage;
-        _restingSize = Size(availableWidth, availableHeight);
+        final restingAvailableHeight = _heldRestingHeight(
+          widget.restingAvailableHeight ?? availableHeight,
+        );
+        _restingTopPage = restingAvailableHeight == availableHeight
+            ? topPage
+            : topFeature.page(
+                context,
+                topRoute,
+                restingAvailableHeight,
+                _controllerFor(topRoute.pageKey),
+              );
+        _restingSize = Size(availableWidth, restingAvailableHeight);
         _restingPageKeys = [for (final route in _stack) route.pageKey];
         _scheduleRestingViewportReport();
         _publishTopSheetFullyExpanded(
@@ -584,6 +598,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     }
   }
 
+  double _heldRestingHeight(double height) {
+    final held = _restingSize.height;
+    return (held - height).abs() < _restingHeightTolerance ? held : height;
+  }
+
   void _scheduleRestingViewportReport() {
     if (_isRestingReportScheduled || widget.onRestingViewportChanged == null) return;
 
@@ -799,8 +818,12 @@ SheetPage _withMoverScope(SheetPage page, SheetMover mover) => SheetPage(
   focusExtent: page.focusExtent,
 );
 
-typedef _SheetMove =
-    Future<void> Function(Object pageKey, double snapExtent, Duration duration, Curve curve);
+typedef _SheetMove = Future<void> Function(
+  Object pageKey,
+  double snapExtent,
+  Duration duration,
+  Curve curve,
+);
 
 final class const _PageSheetMover(final Object _pageKey, final _SheetMove _move)
     implements SheetMover {
