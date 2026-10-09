@@ -90,6 +90,10 @@ const _settledSnapTolerance = 0.005;
 const _settledSnapMaxFrameDelta = 0.001;
 const _restingHeightTolerance = 0.01;
 const _floorResnapDuration = Duration(milliseconds: 200);
+const _floorInstantResnapDuration = Duration(milliseconds: 1);
+
+typedef _FloorBasis = ({double extent, double regionHeight, double availableHeight});
+typedef _FloorResnap = ({bool wasAtFloor, bool isViewportOnly});
 
 const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
@@ -129,7 +133,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   var _isRestingReportScheduled = false;
   final _movers = <Object, SheetMover>{};
   final _measuredFloorHeights = <Object, double>{};
-  final _floorExtentByPage = <Object, double>{};
+  final _floorBasisByPage = <Object, _FloorBasis>{};
+  final _pendingFloorResnaps = <Object, _FloorResnap>{};
+  var _isFloorResnapScheduled = false;
   final _floorResolvers = <Object, SheetFloorResolver>{};
   final _floorReporters = <Object, ValueChanged<double>>{};
   final _restingFloorResolver = SheetFloorResolver();
@@ -184,6 +190,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     visualTopExtent: _visualTopExtent,
     isTransitionActive: _isTransitionActive,
     requestPop: _requestPop,
+    resolvedPage: _resolvedPageFor,
     child: LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
@@ -200,7 +207,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           );
           if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
           _pagesByPageKey[route.pageKey] = page;
-          _followFloor(route.pageKey, page);
+          _followFloor(route.pageKey, page, availableHeight);
           entries.add(
             SheetStackEntry(
               route: route,
@@ -523,20 +530,41 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     final previous = _measuredFloorHeights[pageKey];
     if (previous != null && (previous - height).abs() <= SheetFloor.measurementTolerance) return;
 
+    final defaultHeight = _pagesByPageKey[pageKey]?.floor?.defaultRegionHeight;
+    if (previous == null &&
+        defaultHeight != null &&
+        (defaultHeight - height).abs() <= SheetFloor.measurementTolerance) {
+      _measuredFloorHeights[pageKey] = defaultHeight;
+      return;
+    }
+
     setState(() => _measuredFloorHeights[pageKey] = height);
   }
 
-  void _followFloor(Object pageKey, SheetPage page) {
-    if (page.floor == null || page.snapSizes.isEmpty) return;
+  SheetPage? _resolvedPageFor(Object pageKey) => _pagesByPageKey[pageKey];
 
-    final floor = page.snapSizes.reduce(math.min);
-    final previousFloor = _floorExtentByPage[pageKey];
-    _floorExtentByPage[pageKey] = floor;
-    if (previousFloor == null || previousFloor == floor) return;
+  void _followFloor(Object pageKey, SheetPage page, double availableHeight) {
+    final floor = page.floor;
+    if (floor == null || page.snapSizes.isEmpty) return;
 
-    if (_isRestingAtFloor(pageKey, previousFloor)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _resnapToFloor(pageKey));
+    final basis = (
+      extent: page.snapSizes.first,
+      regionHeight: _measuredFloorHeights[pageKey] ?? floor.defaultRegionHeight,
+      availableHeight: availableHeight,
+    );
+    final previous = _floorBasisByPage[pageKey];
+    _floorBasisByPage[pageKey] = basis;
+    if (previous != null && previous.extent != basis.extent) {
+      final existing = _pendingFloorResnaps[pageKey];
+      _pendingFloorResnaps[pageKey] = (
+        wasAtFloor: (existing?.wasAtFloor ?? false) || _isRestingAtFloor(pageKey, previous.extent),
+        isViewportOnly:
+            (existing?.isViewportOnly ?? true) &&
+            previous.regionHeight == basis.regionHeight &&
+            previous.availableHeight != basis.availableHeight,
+      );
     }
+    _scheduleFloorResnaps();
   }
 
   bool _isRestingAtFloor(Object pageKey, double floor) {
@@ -546,13 +574,53 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     return reference != null && (reference - floor).abs() <= _settledSnapTolerance;
   }
 
-  void _resnapToFloor(Object pageKey) {
-    final snapSizes = _pagesByPageKey[pageKey]?.snapSizes;
-    if (!mounted || snapSizes == null || snapSizes.isEmpty) return;
+  void _scheduleFloorResnaps() {
+    if (_pendingFloorResnaps.isEmpty || _isFloorResnapScheduled) return;
 
-    final floor = snapSizes.reduce(math.min);
-    _confirmedSnapByPage[pageKey] = floor;
-    unawaited(_moveTo(pageKey, floor, _floorResnapDuration, Curves.easeInOut));
+    _isFloorResnapScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _isFloorResnapScheduled = false;
+      if (!mounted || _isTransitionActive.value) return;
+
+      for (final pageKey in _pendingFloorResnaps.keys.toList()) {
+        _resnapToFloor(pageKey, _pendingFloorResnaps[pageKey]!);
+      }
+    });
+  }
+
+  void _resnapToFloor(Object pageKey, _FloorResnap resnap) {
+    final page = _pagesByPageKey[pageKey];
+    final controller = _controllers[pageKey];
+    if (page == null) return;
+
+    final isTop = pageKey == _topPageKey;
+    if (isTop && _isSheetInteracting) {
+      _pendingFloorResnaps.remove(pageKey);
+      return;
+    }
+
+    final extent = controller?.extent;
+    if (controller == null || !controller.hasClient || extent == null) return;
+    if (isTop && (_plannedSnap?.isRunning ?? false)) return;
+
+    _pendingFloorResnaps.remove(pageKey);
+    final target = resnap.wasAtFloor
+        ? page.snapSizes.first
+        : page.snapSizes.any((snap) => (extent - snap).abs() <= _settledSnapTolerance)
+        ? null
+        : minBy(page.snapSizes, (snap) => (snap - extent).abs());
+    if (target == null) return;
+
+    final isAnimated = !resnap.isViewportOnly && _confirmedSnapByPage.containsKey(pageKey);
+    _confirmedSnapByPage[pageKey] = target;
+    unawaited(
+      _moveTo(
+        pageKey,
+        target,
+        isAnimated ? _floorResnapDuration : _floorInstantResnapDuration,
+        Curves.easeInOut,
+      ),
+    );
   }
 
   void _endPlannedMove(_PlannedSnap plan) {
@@ -560,6 +628,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     plan.isRunning = false;
     _publishSettledSnap();
+    _scheduleFloorResnaps();
   }
 
   void _requestPop() {
@@ -588,7 +657,8 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _movers.remove(pageKey);
     _measuredFloorHeights.remove(pageKey);
-    _floorExtentByPage.remove(pageKey);
+    _floorBasisByPage.remove(pageKey);
+    _pendingFloorResnaps.remove(pageKey);
     _floorResolvers.remove(pageKey);
     _floorReporters.remove(pageKey);
     _pagesByPageKey.remove(pageKey);
@@ -804,6 +874,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
       _isTransitionActive.value = value;
       if (!value) _isSettleCheckScheduled = false;
       _publishSettledSnap();
+      if (!value) _scheduleFloorResnaps();
       _publishTopSheetFullyExpanded(
         _isTopSheetFullyExpanded(_settledTopPageExtent, _topPageExpandedExtent),
       );
@@ -938,6 +1009,7 @@ class const _FeatureScopes<R extends SheetRoute, F extends SheetFeature<R>>({
   required final ValueListenable<double?> visualTopExtent,
   required final ValueListenable<bool> isTransitionActive,
   required final VoidCallback requestPop,
+  required final SheetResolvedPageLookup resolvedPage,
   required final Widget child,
   super.key,
 }) extends StatelessWidget {
@@ -946,6 +1018,7 @@ class const _FeatureScopes<R extends SheetRoute, F extends SheetFeature<R>>({
     visualTopExtent: visualTopExtent,
     isTransitionActive: isTransitionActive,
     requestPop: requestPop,
+    resolvedPage: resolvedPage,
     child: features.reversed.fold(child, (scoped, feature) => feature.scope(context, scoped)),
   );
 }

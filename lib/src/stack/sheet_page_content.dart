@@ -76,18 +76,47 @@ class const _FloorInsetSpacer({
   required final SheetController controller,
   required final List<double> snapSizes,
   required final double inset,
-}) extends StatelessWidget {
+}) extends StatefulWidget {
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: controller,
-    builder: (context, _) => SizedBox(height: _isNearestSnapFloor() ? inset : 0),
-  );
+  State<_FloorInsetSpacer> createState() => _FloorInsetSpacerState();
+}
+
+class _FloorInsetSpacerState() extends State<_FloorInsetSpacer> {
+  late bool _isAtFloor = _isNearestSnapFloor();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_syncFloor);
+  }
+
+  @override
+  void didUpdateWidget(_FloorInsetSpacer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _isAtFloor = _isNearestSnapFloor();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_syncFloor);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(height: _isAtFloor ? widget.inset : 0);
+
+  void _syncFloor() {
+    final isAtFloor = _isNearestSnapFloor();
+    if (isAtFloor == _isAtFloor) return;
+
+    setState(() => _isAtFloor = isAtFloor);
+  }
 
   bool _isNearestSnapFloor() {
-    final extent = controller.extent;
-    final floorSnap = snapSizes.minOrNull;
+    final extent = widget.controller.extent;
+    final floorSnap = widget.snapSizes.minOrNull;
     if (extent == null || floorSnap == null) return true;
 
-    return minBy(snapSizes, (snap) => (snap - extent).abs()) == floorSnap;
+    return minBy(widget.snapSizes, (snap) => (snap - extent).abs()) == floorSnap;
   }
 }

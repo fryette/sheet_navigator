@@ -35,10 +35,11 @@ class SheetFloorResolver() {
   List<double>? _snapSizes;
   double? _initialSize;
   SheetFloor? _floor;
-  double? _measuredRegionHeight;
+  double? _regionHeight;
   double? _availableHeight;
   SheetFloorResolution? _resolution;
 
+  @visibleForTesting
   SheetFloorResolution? get lastResolution => _resolution;
 
   SheetFloorResolution resolve({
@@ -47,21 +48,25 @@ class SheetFloorResolver() {
     required double? measuredRegionHeight,
     required double availableHeight,
   }) {
+    final regionHeight = measuredRegionHeight ?? floor.defaultRegionHeight;
     final cached = _resolution;
     if (cached != null &&
         _floor == floor &&
-        _measuredRegionHeight == measuredRegionHeight &&
+        _regionHeight == regionHeight &&
         _availableHeight == availableHeight &&
         _initialSize == page.initialSize &&
         listEquals(_snapSizes, page.snapSizes)) {
       return cached;
     }
 
-    resolveCount++;
+    assert(() {
+      resolveCount++;
+      return true;
+    }());
     _snapSizes = page.snapSizes;
     _initialSize = page.initialSize;
     _floor = floor;
-    _measuredRegionHeight = measuredRegionHeight;
+    _regionHeight = regionHeight;
     _availableHeight = availableHeight;
     return _resolution = _compute(page, floor, measuredRegionHeight, availableHeight);
   }

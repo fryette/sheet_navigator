@@ -155,6 +155,50 @@ void main() {
     });
   });
 
+  group('SheetNavigatorScope', () {
+    testWidgets('without a lookup resolves no page', (tester) async {
+      late SheetNavigatorScope scope;
+      await tester.pumpWidget(
+        SheetNavigatorScope(
+          visualTopExtent: ValueNotifier<double?>(null),
+          isTransitionActive: ValueNotifier<bool>(false),
+          requestPop: () {},
+          child: Builder(
+            builder: (context) {
+              scope = SheetNavigatorScope.maybeOf(context)!;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+
+      expect(scope.resolvedPageOf('page'), isNull);
+      expect(scope.resolvedSnapSizesOf('page'), isNull);
+    });
+
+    testWidgets('with a lookup returns the page and its snaps', (tester) async {
+      final page = _page(snapSizes: const [0.2, 1]);
+      late SheetNavigatorScope scope;
+      await tester.pumpWidget(
+        SheetNavigatorScope(
+          visualTopExtent: ValueNotifier<double?>(null),
+          isTransitionActive: ValueNotifier<bool>(false),
+          requestPop: () {},
+          resolvedPage: (key) => key == 'page' ? page : null,
+          child: Builder(
+            builder: (context) {
+              scope = SheetNavigatorScope.maybeOf(context)!;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+
+      expect(scope.resolvedPageOf('page'), same(page));
+      expect(scope.resolvedSnapSizesOf('page'), [0.2, 1]);
+    });
+  });
+
   group('SheetPageScope', () {
     testWidgets('snapSizesOf throws outside a scope', (tester) async {
       await tester.pumpWidget(const SizedBox());
