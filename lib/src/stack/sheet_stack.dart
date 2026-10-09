@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_style.dart';
 import 'package:sheet_navigator/src/page/sheet_page.dart';
+import 'package:sheet_navigator/src/page/sheet_page_scope.dart';
 import 'package:sheet_navigator/src/route/sheet_route.dart';
 import 'package:sheet_navigator/src/stack/sheet_content_bounce.dart';
 import 'package:sheet_navigator/src/stack/sheet_controller_extent.dart';
@@ -21,6 +22,7 @@ class const SheetStackEntry({
   required final SheetRoute route,
   required final SheetPage page,
   required final SheetController controller,
+  final ValueChanged<double>? onFloorMeasured,
 });
 
 class const SheetStack({
@@ -622,13 +624,20 @@ class const _SheetStackEntrySheet({
           child: style.surfaceBuilder(context, card),
         ),
       ),
-      child: SheetPageContent(
-        controller: live.entry.controller,
-        builder: live.contentBounce.track(page.builder),
-        header: page.header,
-        handle: style.handleBuilder,
-        viewportHeight: viewportHeight,
-        contentBoxHeight: maxSize * viewportHeight,
+      child: SheetPageScope(
+        snapSizes: page.snapSizes,
+        floor: page.floor,
+        onFloorMeasured: live.entry.onFloorMeasured,
+        child: SheetPageContent(
+          controller: live.entry.controller,
+          builder: live.contentBounce.track(page.builder),
+          header: page.header,
+          handle: style.handleBuilder,
+          floor: page.floor,
+          snapSizes: page.snapSizes,
+          viewportHeight: viewportHeight,
+          contentBoxHeight: maxSize * viewportHeight,
+        ),
       ),
     );
 

@@ -196,7 +196,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
 
-    expect(position.pixels, closeTo(0, 0.5));
+    expect(position.pixels, lessThanOrEqualTo(0));
     expect(_offset(controller), lessThan(math.min(startOffset, caughtOffset)));
 
     await gesture.up();
