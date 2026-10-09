@@ -12,7 +12,7 @@ dependencies:
   collection: 1.19.1
   flutter:
     sdk: flutter
-  smooth_sheets: 1.2.0
+  smooth_sheets: 1.3.0
 
 dev_dependencies:
   flutter_lints: 6.0.0
@@ -23,4 +23,4 @@ dependency_overrides:
   smooth_sheets:
     git:
       url: https://github.com/fryette/smooth_sheets.git
-      ref: c3f8f53c2ed7f651de8f49ad453d35cf4e290f12
+      ref: 940afd28bebba0ac40bff1ae82c0382f191fdc39
