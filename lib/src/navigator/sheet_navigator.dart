@@ -11,6 +11,7 @@ import 'package:sheet_navigator/src/navigator/sheet_navigator_scope.dart';
 import 'package:sheet_navigator/src/navigator/sheet_navigator_style.dart';
 import 'package:sheet_navigator/src/navigator/sheet_overlay_layer.dart';
 import 'package:sheet_navigator/src/navigator/sheet_viewport_state.dart';
+import 'package:sheet_navigator/src/page/sheet_floor.dart';
 import 'package:sheet_navigator/src/page/sheet_page.dart';
 import 'package:sheet_navigator/src/route/sheet_navigator_controller.dart';
 import 'package:sheet_navigator/src/route/sheet_route.dart';
@@ -88,6 +89,7 @@ const _fullyExpandedExtentTolerance = 0.0005;
 const _settledSnapTolerance = 0.005;
 const _settledSnapMaxFrameDelta = 0.001;
 const _restingHeightTolerance = 0.01;
+const _floorResnapDuration = Duration(milliseconds: 200);
 
 const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
@@ -126,6 +128,10 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   SheetRestingViewport? _lastReportedRestingViewport;
   var _isRestingReportScheduled = false;
   final _movers = <Object, SheetMover>{};
+  final _measuredFloorHeights = <Object, double>{};
+  final _floorResolvers = <Object, SheetFloorResolver>{};
+  final _floorReporters = <Object, ValueChanged<double>>{};
+  final _restingFloorResolver = SheetFloorResolver();
   _PlannedSnap? _plannedSnap;
   var _isActive = true;
 
@@ -186,7 +192,11 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           _routesByPageKey[route.pageKey] = route;
           final isNewPage = !_controllers.containsKey(route.pageKey);
           final controller = _controllerFor(route.pageKey);
-          final page = _featureFor(route).page(context, route, availableHeight, controller);
+          final page = _resolveFloor(
+            _featureFor(route).page(context, route, availableHeight, controller),
+            availableHeight,
+            _floorResolvers.putIfAbsent(route.pageKey, SheetFloorResolver.new),
+          );
           if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
           _pagesByPageKey[route.pageKey] = page;
           entries.add(
@@ -194,6 +204,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
               route: route,
               page: _withMoverScope(page, _moverFor(route.pageKey)),
               controller: controller,
+              onFloorMeasured: page.floor == null ? null : _floorReporterFor(route.pageKey),
             ),
           );
         }
@@ -217,11 +228,15 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         );
         _restingTopPage = restingAvailableHeight == availableHeight
             ? topPage
-            : topFeature.page(
-                context,
-                topRoute,
+            : _resolveFloor(
+                topFeature.page(
+                  context,
+                  topRoute,
+                  restingAvailableHeight,
+                  _controllerFor(topRoute.pageKey),
+                ),
                 restingAvailableHeight,
-                _controllerFor(topRoute.pageKey),
+                _restingFloorResolver,
               );
         _restingSize = Size(availableWidth, restingAvailableHeight);
         _restingPageKeys = [for (final route in _stack) route.pageKey];
@@ -471,6 +486,67 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         .whenComplete(() => _endPlannedMove(plan));
   }
 
+  SheetPage _resolveFloor(SheetPage page, double availableHeight, SheetFloorResolver resolver) {
+    final floor = page.floor;
+    if (floor == null) return page;
+
+    final resolution = resolver.resolve(
+      page: page,
+      floor: floor,
+      measuredRegionHeight: _measuredFloorHeights[page.pageKey],
+      availableHeight: availableHeight,
+    );
+    return SheetPage(
+      pageKey: page.pageKey,
+      initialSize: resolution.initialSize,
+      snapSizes: resolution.snapSizes,
+      builder: page.builder,
+      header: page.header,
+      pinnedExtent: page.pinnedExtent,
+      backgroundTopInset: page.backgroundTopInset,
+      focusExtent: page.focusExtent,
+      floor: floor,
+    );
+  }
+
+  ValueChanged<double> _floorReporterFor(Object pageKey) => _floorReporters.putIfAbsent(
+    pageKey,
+    () =>
+        (height) => _handleFloorMeasured(pageKey, height),
+  );
+
+  void _handleFloorMeasured(Object pageKey, double height) {
+    if (!mounted || height <= 0 || !_pagesByPageKey.containsKey(pageKey)) return;
+
+    final previous = _measuredFloorHeights[pageKey];
+    if (previous != null && (previous - height).abs() <= SheetFloor.measurementTolerance) return;
+
+    final wasRestingAtFloor = _isRestingAtFloor(pageKey);
+    setState(() => _measuredFloorHeights[pageKey] = height);
+    if (wasRestingAtFloor) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _resnapToFloor(pageKey));
+    }
+  }
+
+  bool _isRestingAtFloor(Object pageKey) {
+    final snapSizes = _pagesByPageKey[pageKey]?.snapSizes;
+    if (snapSizes == null || snapSizes.isEmpty) return false;
+    if (pageKey == _topPageKey && _isSheetInteracting) return false;
+
+    final reference = _confirmedSnapByPage[pageKey] ?? _controllers[pageKey]?.extent;
+    return reference != null &&
+        (reference - snapSizes.reduce(math.min)).abs() <= _settledSnapTolerance;
+  }
+
+  void _resnapToFloor(Object pageKey) {
+    final snapSizes = _pagesByPageKey[pageKey]?.snapSizes;
+    if (!mounted || snapSizes == null || snapSizes.isEmpty) return;
+
+    final floor = snapSizes.reduce(math.min);
+    _confirmedSnapByPage[pageKey] = floor;
+    unawaited(_moveTo(pageKey, floor, _floorResnapDuration, Curves.easeInOut));
+  }
+
   void _endPlannedMove(_PlannedSnap plan) {
     if (!mounted || !identical(_plannedSnap, plan)) return;
 
@@ -503,6 +579,9 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     _controllers.remove(pageKey)?.dispose();
     _movers.remove(pageKey);
+    _measuredFloorHeights.remove(pageKey);
+    _floorResolvers.remove(pageKey);
+    _floorReporters.remove(pageKey);
     _pagesByPageKey.remove(pageKey);
     _lastSettledExtentByPage.remove(pageKey);
     _confirmedSnapByPage.remove(pageKey);
@@ -816,6 +895,7 @@ SheetPage _withMoverScope(SheetPage page, SheetMover mover) => SheetPage(
   pinnedExtent: page.pinnedExtent,
   backgroundTopInset: page.backgroundTopInset,
   focusExtent: page.focusExtent,
+  floor: page.floor,
 );
 
 typedef _SheetMove = Future<void> Function(
