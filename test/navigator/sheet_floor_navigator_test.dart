@@ -67,7 +67,6 @@ class const _Host({
   required final List<_FloorFeature> features,
   required final ValueNotifier<double> textScale,
   required final ValueNotifier<List<SheetRoute>> stack,
-  super.key,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
