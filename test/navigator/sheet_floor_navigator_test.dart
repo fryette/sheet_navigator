@@ -21,6 +21,7 @@ class _FloorFeature({
   required final List<double> snapSizes,
   required final double initialSize,
   final bool isOther = false,
+  final bool isRegionInBody = false,
 }) with SheetFeature<SheetRoute> {
   final controllers = <Object, SheetController>{};
   final observedSnaps = <List<double>>[];
@@ -42,7 +43,7 @@ class _FloorFeature({
       initialSize: initialSize,
       snapSizes: snapSizes,
       floor: floor,
-      header: !showHeader.value
+      header: !showHeader.value || isRegionInBody
           ? null
           : (context) => SizedBox(
               key: _headerKey,
@@ -54,6 +55,15 @@ class _FloorFeature({
         return ListView(
           controller: scrollController,
           children: [
+            if (isRegionInBody)
+              SheetFloorRegion(
+                child: Builder(
+                  builder: (context) => SizedBox(
+                    key: _headerKey,
+                    height: MediaQuery.textScalerOf(context).scale(_baseRegionHeight),
+                  ),
+                ),
+              ),
             for (var index = 0; index < 40; index++)
               SizedBox(key: index == 0 ? _bodyKey : null, height: 60, child: Text('$index')),
           ],
@@ -67,6 +77,7 @@ class const _Host({
   required final List<_FloorFeature> features,
   required final ValueNotifier<double> textScale,
   required final ValueNotifier<List<SheetRoute>> stack,
+  required final ValueNotifier<double> bottomInset,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -78,13 +89,19 @@ class const _Host({
       ),
     ),
     home: ValueListenableBuilder(
-      valueListenable: stack,
-      builder: (context, routes, _) => SheetNavigator<SheetRoute, _FloorFeature>(
-        features: features,
-        stack: routes,
-        style: _style,
-        onPopRequested: () {},
-        onRouteExited: (_) {},
+      valueListenable: bottomInset,
+      builder: (context, inset, _) => Padding(
+        padding: EdgeInsets.only(bottom: inset),
+        child: ValueListenableBuilder(
+          valueListenable: stack,
+          builder: (context, routes, _) => SheetNavigator<SheetRoute, _FloorFeature>(
+            features: features,
+            stack: routes,
+            style: _style,
+            onPopRequested: () {},
+            onRouteExited: (_) {},
+          ),
+        ),
       ),
     ),
   );
@@ -93,8 +110,10 @@ class const _Host({
 void main() {
   late ValueNotifier<double> textScale;
   late ValueNotifier<List<SheetRoute>> stack;
+  late ValueNotifier<double> bottomInset;
 
   setUp(() {
+    bottomInset = ValueNotifier(0);
     textScale = ValueNotifier(1);
     stack = ValueNotifier(const [_FloorRoute()]);
     SheetFloorResolver.resolveCount = 0;
@@ -103,6 +122,7 @@ void main() {
   tearDown(() {
     textScale.dispose();
     stack.dispose();
+    bottomInset.dispose();
   });
 
   _FloorFeature feature({
@@ -111,6 +131,7 @@ void main() {
     double defaultRegionHeight = 100,
     double trailingInset = 0,
     bool isOther = false,
+    bool isRegionInBody = false,
   }) => _FloorFeature(
     floor: SheetFloor(
       defaultRegionHeight: defaultRegionHeight,
@@ -120,15 +141,18 @@ void main() {
     snapSizes: snapSizes,
     initialSize: initialSize,
     isOther: isOther,
+    isRegionInBody: isRegionInBody,
   );
 
   Future<void> pumpHost(WidgetTester tester, List<_FloorFeature> features) async {
-    await tester.pumpWidget(_Host(features: features, textScale: textScale, stack: stack));
+    await tester.pumpWidget(
+      _Host(features: features, textScale: textScale, stack: stack, bottomInset: bottomInset),
+    );
     await tester.pumpAndSettle();
   }
 
   double extentOf(_FloorFeature feature, [SheetRoute route = const _FloorRoute()]) =>
-      feature.controllers[route.pageKey]!.metrics!.offset / 600;
+      feature.controllers[route.pageKey]!.metrics!.offset / (600 - bottomInset.value);
 
   double viewportHeight(WidgetTester tester) => tester.getSize(find.byType(SheetViewport)).height;
 
@@ -137,7 +161,14 @@ void main() {
       tester,
     ) async {
       final floorFeature = feature(initialSize: 0.1);
-      await tester.pumpWidget(_Host(features: [floorFeature], textScale: textScale, stack: stack));
+      await tester.pumpWidget(
+        _Host(
+          features: [floorFeature],
+          textScale: textScale,
+          stack: stack,
+          bottomInset: bottomInset,
+        ),
+      );
 
       expect(floorFeature.observedSnaps.first.first, closeTo((_leading + 100) / 600, 1e-9));
     });
@@ -168,6 +199,80 @@ void main() {
 
       expect(SheetFloorResolver.resolveCount, before + 1);
       expect(extentOf(floorFeature), closeTo((_leading + 80) / 600, 0.005));
+    });
+
+    testWidgets('a sheet resting on the floor follows it down when the floor shrinks', (
+      tester,
+    ) async {
+      textScale.value = 2;
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+      expect(extentOf(floorFeature), closeTo((_leading + 80) / 600, 0.005));
+
+      textScale.value = 1;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 600, 0.005));
+    });
+
+    testWidgets('a sheet resting on the floor follows it up and back down', (tester) async {
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+
+      textScale.value = 2;
+      await tester.pumpAndSettle();
+      expect(extentOf(floorFeature), closeTo((_leading + 80) / 600, 0.005));
+
+      textScale.value = 1;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 600, 0.005));
+    });
+
+    testWidgets('a region inside the scroll body follows the floor up and back down', (
+      tester,
+    ) async {
+      final floorFeature = feature(initialSize: 0.1, isRegionInBody: true);
+      await pumpHost(tester, [floorFeature]);
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 600, 0.005));
+
+      textScale.value = 2;
+      await tester.pumpAndSettle();
+      expect(extentOf(floorFeature), closeTo((_leading + 80) / 600, 0.005));
+
+      textScale.value = 1;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 600, 0.005));
+    });
+
+    testWidgets('a sheet resting on the floor stays on it when the viewport height changes', (
+      tester,
+    ) async {
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+
+      bottomInset.value = 48;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 552, 0.005));
+    });
+
+    testWidgets('a floor shrink after a viewport height change still re-snaps the sheet', (
+      tester,
+    ) async {
+      textScale.value = 2;
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+
+      bottomInset.value = 48;
+      await tester.pumpAndSettle();
+      textScale.value = 1;
+      await tester.pumpAndSettle();
+      bottomInset.value = 0;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 40) / 600, 0.005));
     });
 
     testWidgets('a sheet resting above the floor stays put when the floor changes', (tester) async {

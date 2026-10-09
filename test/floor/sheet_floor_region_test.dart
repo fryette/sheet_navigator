@@ -75,6 +75,24 @@ void main() {
       expect(reports, [60]);
     });
 
+    testWidgets('a region removed before its report reports nothing', (tester) async {
+      final reports = <double>[];
+      await tester.pumpWidget(_region(reports, 60));
+      tester
+          .renderObject<RenderConstrainedBox>(
+            find.descendant(of: find.byType(SheetFloorRegion), matching: find.byType(SizedBox)),
+          )
+          .additionalConstraints = const BoxConstraints.tightFor(
+        width: 100,
+        height: 90,
+      );
+      tester.binding.rootPipelineOwner.flushLayout();
+
+      await tester.pumpWidget(const SizedBox());
+
+      expect(reports, [60]);
+    });
+
     testWidgets('a zero height is never reported', (tester) async {
       final reports = <double>[];
 

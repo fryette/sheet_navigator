@@ -47,6 +47,8 @@ class _RenderFloorRegion extends RenderProxyBox {
 
   void _report() {
     _isReportScheduled = false;
+    if (!attached) return;
+
     final height = size.height;
     _lastReported = height;
     onHeightChanged?.call(height);

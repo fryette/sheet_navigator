@@ -129,6 +129,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   var _isRestingReportScheduled = false;
   final _movers = <Object, SheetMover>{};
   final _measuredFloorHeights = <Object, double>{};
+  final _floorExtentByPage = <Object, double>{};
   final _floorResolvers = <Object, SheetFloorResolver>{};
   final _floorReporters = <Object, ValueChanged<double>>{};
   final _restingFloorResolver = SheetFloorResolver();
@@ -199,6 +200,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
           );
           if (isNewPage) _lastSettledExtentByPage[route.pageKey] = page.initialSize;
           _pagesByPageKey[route.pageKey] = page;
+          _followFloor(route.pageKey, page);
           entries.add(
             SheetStackEntry(
               route: route,
@@ -521,21 +523,27 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     final previous = _measuredFloorHeights[pageKey];
     if (previous != null && (previous - height).abs() <= SheetFloor.measurementTolerance) return;
 
-    final wasRestingAtFloor = _isRestingAtFloor(pageKey);
     setState(() => _measuredFloorHeights[pageKey] = height);
-    if (wasRestingAtFloor) {
+  }
+
+  void _followFloor(Object pageKey, SheetPage page) {
+    if (page.floor == null || page.snapSizes.isEmpty) return;
+
+    final floor = page.snapSizes.reduce(math.min);
+    final previousFloor = _floorExtentByPage[pageKey];
+    _floorExtentByPage[pageKey] = floor;
+    if (previousFloor == null || previousFloor == floor) return;
+
+    if (_isRestingAtFloor(pageKey, previousFloor)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _resnapToFloor(pageKey));
     }
   }
 
-  bool _isRestingAtFloor(Object pageKey) {
-    final snapSizes = _pagesByPageKey[pageKey]?.snapSizes;
-    if (snapSizes == null || snapSizes.isEmpty) return false;
+  bool _isRestingAtFloor(Object pageKey, double floor) {
     if (pageKey == _topPageKey && _isSheetInteracting) return false;
 
     final reference = _confirmedSnapByPage[pageKey] ?? _controllers[pageKey]?.extent;
-    return reference != null &&
-        (reference - snapSizes.reduce(math.min)).abs() <= _settledSnapTolerance;
+    return reference != null && (reference - floor).abs() <= _settledSnapTolerance;
   }
 
   void _resnapToFloor(Object pageKey) {
@@ -580,6 +588,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _controllers.remove(pageKey)?.dispose();
     _movers.remove(pageKey);
     _measuredFloorHeights.remove(pageKey);
+    _floorExtentByPage.remove(pageKey);
     _floorResolvers.remove(pageKey);
     _floorReporters.remove(pageKey);
     _pagesByPageKey.remove(pageKey);
