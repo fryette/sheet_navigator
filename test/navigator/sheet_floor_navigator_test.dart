@@ -185,7 +185,7 @@ void main() {
     testWidgets('a floor change during a drag does not move the sheet', (tester) async {
       final floorFeature = feature(initialSize: 0.1);
       await pumpHost(tester, [floorFeature]);
-      final gesture = await tester.startGesture(Offset(400, 600 - 20));
+      final gesture = await tester.startGesture(const Offset(400, 580));
       await gesture.moveBy(const Offset(0, -40));
       await tester.pump();
       await gesture.moveBy(const Offset(0, -40));

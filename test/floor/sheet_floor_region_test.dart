@@ -94,7 +94,7 @@ void main() {
           child: SheetPageScope(
             snapSizes: const [1],
             onFloorMeasured: reports.add,
-            child: _DoubleLayout(child: SheetFloorRegion(child: const SizedBox())),
+            child: const _DoubleLayout(child: SheetFloorRegion(child: SizedBox())),
           ),
         ),
       );
