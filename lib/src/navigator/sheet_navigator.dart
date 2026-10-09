@@ -87,13 +87,14 @@ class const SheetNavigator<R extends SheetRoute, F extends SheetFeature<R>>({
 
 const _fullyExpandedExtentTolerance = 0.0005;
 const _settledSnapTolerance = 0.005;
+const _floorResnapRestingTolerance = 0.0001;
 const _settledSnapMaxFrameDelta = 0.001;
 const _restingHeightTolerance = 0.01;
 const _floorResnapDuration = Duration(milliseconds: 200);
 const _floorInstantResnapDuration = Duration(milliseconds: 1);
 
 typedef _FloorBasis = ({double extent, double regionHeight, double availableHeight});
-typedef _FloorResnap = ({bool wasAtFloor, bool isViewportOnly});
+typedef _FloorResnap = ({double fromExtent, bool isViewportOnly});
 
 const _sequencedLayerCrossoverPoint = 0.45;
 const _sequencedLayerIncomingOpacityCurve = Interval(_sequencedLayerCrossoverPoint, 1);
@@ -378,6 +379,8 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     ];
     for (final route in removedRoutes) {
       _confirmedSnapByPage.remove(route.pageKey);
+      _pendingFloorResnaps.remove(route.pageKey);
+      _floorBasisByPage.remove(route.pageKey);
     }
     if (removedRoutes.isEmpty) return;
 
@@ -465,7 +468,13 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   SheetMover _moverFor(Object pageKey) =>
       _movers.putIfAbsent(pageKey, () => _PageSheetMover(pageKey, _moveTo));
 
-  Future<void> _moveTo(Object pageKey, double snapExtent, Duration duration, Curve curve) {
+  Future<void> _moveTo(
+    Object pageKey,
+    double snapExtent,
+    Duration duration,
+    Curve curve, {
+    double restingTolerance = _settledSnapTolerance,
+  }) {
     final controller = _controllers[pageKey];
     final page = _pagesByPageKey[pageKey];
     if (!mounted || controller == null || page == null || !controller.hasClient) {
@@ -484,7 +493,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
 
     final extent = controller.extent;
     final isResting =
-        _plannedSnap == null && extent != null && (extent - snap).abs() <= _settledSnapTolerance;
+        _plannedSnap == null && extent != null && (extent - snap).abs() <= restingTolerance;
     if (isResting) return Future.value();
 
     final plan = _PlannedSnap(pageKey, snap);
@@ -557,7 +566,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (previous != null && previous.extent != basis.extent) {
       final existing = _pendingFloorResnaps[pageKey];
       _pendingFloorResnaps[pageKey] = (
-        wasAtFloor: (existing?.wasAtFloor ?? false) || _isRestingAtFloor(pageKey, previous.extent),
+        fromExtent: existing?.fromExtent ?? previous.extent,
         isViewportOnly:
             (existing?.isViewportOnly ?? true) &&
             previous.regionHeight == basis.regionHeight &&
@@ -568,9 +577,8 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
   }
 
   bool _isRestingAtFloor(Object pageKey, double floor) {
-    if (pageKey == _topPageKey && _isSheetInteracting) return false;
-
-    final reference = _confirmedSnapByPage[pageKey] ?? _controllers[pageKey]?.extent;
+    final extent = _controllers[pageKey]?.extent;
+    final reference = pageKey == _topPageKey ? _confirmedSnapByPage[pageKey] ?? extent : extent;
     return reference != null && (reference - floor).abs() <= _settledSnapTolerance;
   }
 
@@ -604,7 +612,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (isTop && (_plannedSnap?.isRunning ?? false)) return;
 
     _pendingFloorResnaps.remove(pageKey);
-    final target = resnap.wasAtFloor
+    final target = _isRestingAtFloor(pageKey, resnap.fromExtent)
         ? page.snapSizes.first
         : page.snapSizes.any((snap) => (extent - snap).abs() <= _settledSnapTolerance)
         ? null
@@ -619,6 +627,7 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
         target,
         isAnimated ? _floorResnapDuration : _floorInstantResnapDuration,
         Curves.easeInOut,
+        restingTolerance: _floorResnapRestingTolerance,
       ),
     );
   }

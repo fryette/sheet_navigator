@@ -23,6 +23,5 @@ class const SheetNavigatorScope({
   bool updateShouldNotify(SheetNavigatorScope oldWidget) =>
       visualTopExtent != oldWidget.visualTopExtent ||
       isTransitionActive != oldWidget.isTransitionActive ||
-      requestPop != oldWidget.requestPop ||
-      resolvedPage != oldWidget.resolvedPage;
+      requestPop != oldWidget.requestPop;
 }

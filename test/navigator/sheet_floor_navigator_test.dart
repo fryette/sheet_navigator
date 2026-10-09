@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sheet_navigator/sheet_navigator.dart';
@@ -438,6 +440,64 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(extentOf(floorFeature), closeTo((_leading + 200) / 600, 0.005));
+    });
+
+    testWidgets('an explicit move to another stop during a pending re-snap is kept', (
+      tester,
+    ) async {
+      final rootFeature = feature(initialSize: 0.1);
+      final otherFeature = feature(initialSize: 0.5, isOther: true);
+      await pumpHost(tester, [rootFeature, otherFeature]);
+      final mover = SheetMover.of(tester.element(find.byKey(_bodyKey)));
+
+      stack.value = const [_FloorRoute(), _OtherRoute()];
+      textScale.value = 2;
+      await tester.pump();
+      unawaited(mover.moveTo(1));
+      await tester.pumpAndSettle();
+
+      expect(extentOf(rootFeature), closeTo(1, 0.005));
+    });
+
+    testWidgets('a drag to another stop that ends before the re-snap runs is kept', (tester) async {
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+
+      textScale.value = 2;
+      await tester.pump();
+      await tester.dragFrom(const Offset(400, 580), const Offset(0, -500));
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo(1, 0.005));
+    });
+
+    testWidgets('a floor change of a couple of pixels still re-snaps the sheet', (tester) async {
+      final floorFeature = feature(initialSize: 0.1);
+      await pumpHost(tester, [floorFeature]);
+
+      textScale.value = 1.05;
+      await tester.pumpAndSettle();
+
+      expect(extentOf(floorFeature), closeTo((_leading + 42) / 600, 0.0002));
+    });
+
+    testWidgets('a page popped while its re-snap is pending is never moved up', (tester) async {
+      final rootFeature = feature(initialSize: 0.1);
+      final otherFeature = feature(initialSize: 0.1, isOther: true);
+      await pumpHost(tester, [rootFeature, otherFeature]);
+      stack.value = const [_FloorRoute(), _OtherRoute()];
+      await tester.pumpAndSettle();
+      final before = extentOf(otherFeature, const _OtherRoute());
+
+      textScale.value = 2;
+      stack.value = const [_FloorRoute()];
+      for (var frame = 0; frame < 60; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final controller = otherFeature.controllers[const _OtherRoute().pageKey]!;
+        if (controller.metrics case final metrics?) {
+          expect(metrics.offset / 600, lessThanOrEqualTo(before + 0.0002));
+        }
+      }
     });
 
     testWidgets('a floor change during a page transition waits for the transition to end', (
