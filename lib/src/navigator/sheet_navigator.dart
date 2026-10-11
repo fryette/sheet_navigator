@@ -576,12 +576,6 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     _scheduleFloorResnaps();
   }
 
-  bool _isRestingAtFloor(Object pageKey, double floor) {
-    final extent = _controllers[pageKey]?.extent;
-    final reference = pageKey == _topPageKey ? _confirmedSnapByPage[pageKey] ?? extent : extent;
-    return reference != null && (reference - floor).abs() <= _settledSnapTolerance;
-  }
-
   void _scheduleFloorResnaps() {
     if (_pendingFloorResnaps.isEmpty || _isFloorResnapScheduled) return;
 
@@ -612,11 +606,15 @@ class _SheetNavigatorState<R extends SheetRoute, F extends SheetFeature<R>>()
     if (isTop && (_plannedSnap?.isRunning ?? false)) return;
 
     _pendingFloorResnaps.remove(pageKey);
-    final target = _isRestingAtFloor(pageKey, resnap.fromExtent)
+    final resting = switch (_plannedSnap) {
+      final plan? when plan.pageKey == pageKey => plan.extent,
+      _ => extent,
+    };
+    final target = (resting - resnap.fromExtent).abs() <= _settledSnapTolerance
         ? page.snapSizes.first
-        : page.snapSizes.any((snap) => (extent - snap).abs() <= _settledSnapTolerance)
+        : page.snapSizes.any((snap) => (resting - snap).abs() <= _settledSnapTolerance)
         ? null
-        : minBy(page.snapSizes, (snap) => (snap - extent).abs());
+        : minBy(page.snapSizes, (snap) => (snap - resting).abs());
     if (target == null) return;
 
     final isAnimated = !resnap.isViewportOnly && _confirmedSnapByPage.containsKey(pageKey);

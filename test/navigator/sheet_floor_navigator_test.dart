@@ -24,6 +24,7 @@ class _FloorFeature({
   required final double initialSize,
   final bool isOther = false,
   final bool isRegionInBody = false,
+  final double? restingHeight,
 }) with SheetFeature<SheetRoute> {
   final controllers = <Object, SheetController>{};
   final observedSnaps = <List<double>>[];
@@ -43,10 +44,14 @@ class _FloorFeature({
   ) {
     controllers[route.pageKey] = controller;
     pageCalls++;
+    final resting = switch (restingHeight) {
+      final height? => height / availableHeight,
+      null => null,
+    };
     return SheetPage(
       pageKey: route.pageKey,
-      initialSize: initialSize,
-      snapSizes: snapSizes,
+      initialSize: resting ?? initialSize,
+      snapSizes: resting == null ? snapSizes : [resting, 1],
       floor: floor,
       header: !showHeader.value || isRegionInBody
           ? null
@@ -140,6 +145,7 @@ void main() {
     double trailingInset = 0,
     bool isOther = false,
     bool isRegionInBody = false,
+    double? restingHeight,
   }) => _FloorFeature(
     floor: SheetFloor(
       defaultRegionHeight: defaultRegionHeight,
@@ -150,6 +156,7 @@ void main() {
     initialSize: initialSize,
     isOther: isOther,
     isRegionInBody: isRegionInBody,
+    restingHeight: restingHeight,
   );
 
   Future<void> pumpHost(WidgetTester tester, List<_FloorFeature> features) async {
@@ -517,6 +524,33 @@ void main() {
       await tester.pumpAndSettle();
       expect(extentOf(rootFeature), closeTo((_leading + 80) / 600, 0.005));
     });
+
+    for (final (name, moveFrame) in [('starts', 1), ('ends', 19)]) {
+      testWidgets('a page moved off its floor as the viewport $name resizing stays at that stop', (
+        tester,
+      ) async {
+        bottomInset.value = 48;
+        final rootFeature = feature(restingHeight: 300);
+        final otherFeature = feature(initialSize: 0.5, isOther: true);
+        await pumpHost(tester, [rootFeature, otherFeature]);
+        final mover = SheetMover.of(tester.element(find.byKey(_bodyKey)));
+        unawaited(mover.moveTo((_leading + 40) / 552));
+        await tester.pumpAndSettle();
+        stack.value = const [_FloorRoute(), _OtherRoute()];
+        bottomInset.value = 0;
+        await tester.pumpAndSettle();
+
+        stack.value = const [_FloorRoute()];
+        for (var frame = 0; frame <= 20; frame++) {
+          bottomInset.value = 48 * frame / 20;
+          if (frame == moveFrame) unawaited(mover.moveTo(300 / (600 - bottomInset.value)));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await tester.pumpAndSettle();
+
+        expect(extentOf(rootFeature), closeTo(300 / 552, 0.005));
+      });
+    }
 
     testWidgets('a first report equal to the default height does not rebuild the navigator', (
       tester,
