@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:sheet_navigator/src/stack/visible_scroll_positions.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
 class SheetContentBounce() implements SheetScrollConfiguration {
@@ -9,7 +10,7 @@ class SheetContentBounce() implements SheetScrollConfiguration {
 
   @override
   bool get delegateUnhandledOverscrollToChild {
-    final position = _content?.positions.firstOrNull;
+    final position = _content?.visiblePositions.firstOrNull;
     return position != null &&
         position.hasContentDimensions &&
         position.maxScrollExtent > position.minScrollExtent &&

@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:sheet_navigator/src/stack/visible_scroll_positions.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
 class const SheetScrolledContentDragGate({
@@ -29,7 +30,7 @@ class const SheetScrolledContentDragGate({
     if (metrics == null || scrollController == null) return false;
     if (metrics.offset >= metrics.maxOffset - _tolerance) return false;
 
-    return scrollController.positions.any(
+    return scrollController.visiblePositions.any(
       (position) =>
           position.hasContentDimensions && position.pixels > position.minScrollExtent + _tolerance,
     );
