@@ -594,41 +594,31 @@ void main() {
     });
   });
 
-  group('floor inset spacer', () {
-    testWidgets('sits below the region only while the sheet rests on the floor', (tester) async {
+  group('floor trailing inset', () {
+    testWidgets('leaves no gap below the header on the floor or while dragging', (tester) async {
       final floorFeature = feature(initialSize: 0.1, trailingInset: 30);
       await pumpHost(tester, [floorFeature]);
       double gapBelowHeader() =>
           tester.getTopLeft(find.byKey(_bodyKey)).dy -
           tester.getBottomLeft(find.byKey(_headerKey)).dy;
 
-      expect(gapBelowHeader(), closeTo(30, 0.01));
-
-      await tester.dragFrom(const Offset(400, 600 - 20), const Offset(0, -500));
-      await tester.pumpAndSettle();
-
       expect(gapBelowHeader(), closeTo(0, 0.01));
-    });
-
-    testWidgets('rebuilds only when the sheet crosses to or from the floor', (tester) async {
-      final floorFeature = feature(initialSize: 0.1, trailingInset: 30);
-      await pumpHost(tester, [floorFeature]);
-      var spacerBuilds = 0;
-      final previous = debugOnRebuildDirtyWidget;
-      debugOnRebuildDirtyWidget = (element, _) {
-        if (element.widget.runtimeType.toString() == '_FloorInsetSpacer') spacerBuilds++;
-      };
-      addTearDown(() => debugOnRebuildDirtyWidget = previous);
 
       final gesture = await tester.startGesture(const Offset(400, 580));
       for (var step = 0; step < 12; step++) {
         await gesture.moveBy(const Offset(0, -30));
         await tester.pump(const Duration(milliseconds: 16));
+        expect(gapBelowHeader(), closeTo(0, 0.01));
+      }
+      for (var step = 0; step < 10; step++) {
+        await gesture.moveBy(const Offset(0, 30));
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(gapBelowHeader(), closeTo(0, 0.01));
       }
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(spacerBuilds, 1);
+      expect(gapBelowHeader(), closeTo(0, 0.01));
     });
 
     testWidgets('is excluded from the measured region', (tester) async {

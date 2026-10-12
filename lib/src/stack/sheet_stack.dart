@@ -634,7 +634,6 @@ class const _SheetStackEntrySheet({
           header: page.header,
           handle: style.handleBuilder,
           floor: page.floor,
-          snapSizes: page.snapSizes,
           viewportHeight: viewportHeight,
           contentBoxHeight: maxSize * viewportHeight,
         ),
