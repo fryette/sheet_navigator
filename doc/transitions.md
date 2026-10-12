@@ -129,7 +129,7 @@ Make pushes between sheets of the same height instant:
 
 ```dart
 bool _isSameHeight(SheetTransitionContext context) =>
-    context.backgroundDelta == 0 && context.from.extent == context.to.extent;
+    context.from.extent == context.to.extent;
 
 final transitions = SheetTransitionFactory.standard.prepend(const [
   SheetTransitionRule(

@@ -25,7 +25,6 @@ Widget _surface(BuildContext context, Widget card) => Material(
 Notes:
 
 - The surface is built inside the transition's opacity and scale, so it fades and scales with its content. The sheet is clipped to the navigator area.
-- Sheets that are not active keep the `MediaQuery` insets they last had, so the keyboard only affects the top sheet.
 - Style is per navigator. For per-page differences, vary what the page builds inside `SheetPage.builder` and `SheetPage.header`.
 
 ```dart

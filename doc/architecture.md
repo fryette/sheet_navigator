@@ -34,7 +34,7 @@ A `SheetFeature<R>` is the bridge between routes and sheets. `SheetNavigator<R, 
 | `scope(context, child)` | Wraps the navigator content (sheets and layers) in an inherited widget, for example to provide a bloc or notifier. Applied only while the feature has a live route or a route that is still exiting. Defaults to `child`. |
 | `layer(context, layerId, route)` | The widget this feature shows in an overlay layer while `route` is on top. `null` shows nothing. |
 | `layerBottom(context, layerId, route)` | Where the layer's content ends, see [overlay layers](viewport-and-overlays.md#overlay-layers). |
-| `onBecameTop(context, route)` | The route became the top of the stack (push, or pop revealing it). |
+| `onBecameTop(context, route)` | The route became the top of the stack (push, or pop revealing it). Called when the stack changes, before the transition finishes; not called for the initial route. |
 | `onAvailableHeightChanged(context, route)` | The navigator's height changed while the same route stayed on top. |
 | `onSettledAfterDrag(context, route, extent)` | The top sheet settled on a snap different from the one it last settled on. Deferred until the user stops dragging or scrolling, then delivered two frames later. `extent` is the snap. |
 
@@ -137,7 +137,7 @@ Found with `SheetNavigatorScope.maybeOf(context)` from pages, headers, features'
 
 ### One sheet per level
 
-`SheetStack` keeps one live `Sheet` (with its own `SheetController`) for each route, stacked in a `Stack`. Only the top sheet, or sheets taking part in a transition, are painted and interactive; covered sheets stay mounted, hidden, ignoring pointers and excluded from semantics. Because the covered sheet is never rebuilt from scratch, its widget state, scroll position and extent survive until it is revealed again.
+`SheetStack` keeps one live `Sheet` (with its own `SheetController`) for each route, stacked in a `Stack`. Only the top sheet, or sheets taking part in a transition, are painted, and only the settled top sheet receives pointer events; covered sheets stay mounted, hidden, ignoring pointers and excluded from semantics. Because the covered sheet is never rebuilt from scratch, its widget state, scroll position and extent survive until it is revealed again.
 
 During a transition each live sheet has a role:
 
@@ -160,7 +160,7 @@ Each role gets its translate, opacity and scale from the `SheetTransitionStrateg
 | One key appended | push |
 | New list is a strict prefix of the old | pop (several sheets can leave at once; the topmost animates, the rest are removed with it) |
 | Same length, only the last key differs | replace |
-| Anything else (for example the bottom of the stack changed) | replace-like rebase of the top; or an immediate rebuild without motion if the new top already exists |
+| Anything else (for example the bottom of the stack changed) | replace-like rebase of the top; or an immediate rebuild without motion if the old top is still in the stack or the new top already exists |
 
 A new change arriving mid-transition finishes the running one immediately first.
 
@@ -176,13 +176,13 @@ sequenceDiagram
     Host->>Nav: new stack / controller.push(route)
     Nav->>Feat: page(context, route, availableHeight, controller)
     Nav->>Stack: entries (one per route)
+    Nav->>Feat: onBecameTop(context, route)
     Stack->>Stack: classify push, build SheetTransitionContext
     Stack->>Stack: strategy = transitions.resolve(context)
     Stack-->>Nav: onTransitionActiveChanged(true)
     Note over Stack: upper sheet advances, lower sheet recedes or travels
     Stack-->>Nav: onVisualTopExtentChanged each frame
     Stack-->>Nav: onTransitionActiveChanged(false)
-    Nav->>Feat: onBecameTop(context, route)
     Nav->>Nav: confirm settled snap, report resting viewport
 
     Host->>Nav: requestPop() then new stack / controller.pop()
@@ -195,7 +195,7 @@ sequenceDiagram
 
 ### Route exit
 
-A removed route is not forgotten until its sheet has left the tree and, if it was the last route of its feature on top, that feature's overlay layers have been disposed. Only then is `onRouteExited` (or `controller.notifyRouteExited`) called, and the feature's `scope` is removed if the feature has no other route. If the exit does not complete within `exitFallbackTimeout` (default 600 ms, multiplied by `timeDilation`), it is forced, so a stuck layer cannot block the callback forever.
+A removed route is not forgotten until its sheet has left the tree and, if the removed top route was its feature's last route in the stack, that feature's overlay layers have been disposed. Only then is `onRouteExited` (or `controller.notifyRouteExited`) called, and the feature's `scope` is removed if the feature has no other route. If the exit does not complete within `exitFallbackTimeout` (default 600 ms, multiplied by `timeDilation`), it is forced, so a stuck layer cannot block the callback forever.
 
 Pushing a key that is still exiting reuses the live controller.
 
