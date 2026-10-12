@@ -1,12 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  pull_request:
 
 concurrency:
-  group: ci-main
-  cancel-in-progress: false
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -25,26 +24,6 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed --line-length 100 lib test
       - run: flutter analyze
       - run: flutter test
-
-  tag:
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Create next patch tag
-        run: |
-          if git tag --points-at "$GITHUB_SHA" | grep -q '^v[0-9]'; then
-            exit 0
-          fi
-          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)
-          latest=${latest:-v0.0.0}
-          IFS=. read -r major minor patch <<< "${latest#v}"
-          next="v${major}.${minor}.$((patch + 1))"
-          git tag "$next" "$GITHUB_SHA"
-          git push origin "$next"
