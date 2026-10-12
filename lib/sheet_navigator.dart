@@ -23,6 +23,7 @@ export 'src/stack/sheet_floor_region.dart';
 export 'src/stack/sheet_page_content.dart';
 export 'src/stack/sheet_physics.dart';
 export 'src/stack/sheet_pointer_cancel_guard.dart';
+export 'src/stack/sheet_scrolled_content_drag_gate.dart';
 export 'src/stack/sheet_stack.dart';
 export 'src/stack/sheet_visible_content.dart';
 export 'src/transition/in_place_sheet_transition.dart';
